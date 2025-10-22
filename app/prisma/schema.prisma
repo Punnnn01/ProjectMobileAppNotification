@@ -21,8 +21,8 @@ model student {
 model teacher {
   teacherID String  @id
   email     String
-  fname     String
-  lastname  String
+  firstName     String
+  lastName  String
   role      String   @default("teacher")
   advisers  adviser[]
 }
