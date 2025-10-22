@@ -1,0 +1,42 @@
+[
+  {
+    "teacherID": 1,
+    "email": "supaporn.cpe@ku.th",
+    "firstName": "supaporn",
+    "lastName": "jantra",
+    "role": "teacher",
+    "advisees": ["1", "3"]
+  },
+  {
+    "teacherID": 2,
+    "email": "kritti.cpe@ku.th",
+    "firstName": "kritti",
+    "lastName": "boonrod",
+    "role": "teacher",
+    "advisees": ["2", "4"]
+  },
+  {
+    "teacherID": 3,
+    "email": "siripong.cpe@ku.th",
+    "firstName": "siripong",
+    "lastName": "insuk",
+    "role": "teacher",
+    "advisees": ["5"]
+  },
+  {
+    "teacherID": 4,
+    "email": "chanida.cpe@ku.th",
+    "firstName": "chanida",
+    "lastName": "pimdee",
+    "role": "teacher",
+    "advisees": []
+  },
+  {
+    "teacherID": 5,
+    "email": "arun.cpe@ku.th",
+    "firstName": "arun",
+    "lastName": "thepwong",
+    "role": "teacher",
+    "advisees": []
+  }
+]

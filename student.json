@@ -1,0 +1,42 @@
+[
+    {
+        "studentID" : 1,
+        "studentCode" : "6510501234",
+        "email" : "tawan.a@ku.th",
+        "firstName" : "Tawan",
+        "lastName" : "Artid",
+        "role" : "student"
+    },
+    {
+        "studentID" : 2,
+        "studentCode" : "6510501122",
+        "email" : "suchart.l@ku.th",
+        "firstName" : "suchart",
+        "lastName" : "kamdee",
+        "role" : "student"
+    },
+    {
+        "studentID" : 3,
+        "studentCode" : "6510501212",
+        "email" : "somchai.j@ku.th",
+        "firstName" : "somchai",
+        "lastName" : "jaidee",
+        "role" : "student"
+    },
+    {
+        "studentID" : 4,
+        "studentCode" : "6510501123",
+        "email" : "jakkri.d@ku.th",
+        "firstName" : "jakkri",
+        "lastName" : "deejai",
+        "role" : "student"
+    },
+    {
+        "studentID" : 5,
+        "studentCode" : "6510501223",
+        "email" : "krittanat.ki@ku.th",
+        "firstName" : "krittanat",
+        "lastName" : "kingput",
+        "role" : "student"
+    }
+]

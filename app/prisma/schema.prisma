@@ -1,0 +1,40 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "mysql" // หรือ postgresql ได้
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model student {
+  studentID String  @id
+  studentCode String
+  email     String
+  firstName     String
+  lastName  String
+  role      String   @default("student")
+  adviser   adviser?
+}
+
+model teacher {
+  teacherID String  @id
+  email     String
+  fname     String
+  lastname  String
+  role      String   @default("teacher")
+  advisers  adviser[]
+}
+
+model adviser {
+  id        Int      @id @default(autoincrement())
+  studentID String   @unique
+  teacherID String
+  assignedAt DateTime @default(now())
+
+  student   student  @relation(fields: [studentID], references: [studentID])
+  teacher   teacher  @relation(fields: [teacherID], references: [teacherID])
+
+  @@index([teacherID])
+}

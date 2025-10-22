@@ -2,16 +2,36 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "baseUrl": ".",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
-    }
+      "@/*": ["app/*"],   // <-- ถ้าใช้ Expo Router เก็บหน้าจอไว้ในโฟลเดอร์ app/
+      "~/*": ["*"]        // ทางลัดถึงรูทโปรเจกต์ (ถ้าต้องการ)
+    },
+    "types": ["react", "react-native"]
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "index.ts",
+    "index.tsx",
+    "expo-env.d.ts",
+    ".expo/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    // โฟลเดอร์ฝั่ง Backend/อื่น ๆ ที่ไม่ใช่ RN
+    "routes/**",
+    "services/**",
+    "controller/**",
+    "app/prisma/**",
+    "scripts/**",
+    "server/**",
+    "backend/**"
   ]
 }
