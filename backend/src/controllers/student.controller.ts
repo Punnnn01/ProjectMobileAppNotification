@@ -8,7 +8,7 @@ export const StudentController = {
   },
 
   getAll: async (_: Request, res: Response) => {
-    const data = await StudentService.getAll();
-    res.json(data);
+    // const data = await StudentService.getAll();
+    res.json("test get students");
   }
 };
