@@ -1,0 +1,13 @@
+* [33m70bbc35[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Remove leaked service account key and ignore JSON creds
+*   [33ma48dbb0[m update frontend
+[32m|[m[33m\[m  
+[32m|[m * [33m4fc3ebf[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m built-front
+* [33m|[m [33m9402f90[m fixv2
+[34m|[m[33m\[m[33m|[m 
+[34m|[m * [33m9bde445[m test_api
+* [35m|[m [33m9e10cd7[m fix
+* [35m|[m [33mec1f9d2[m updatev2
+[35m|[m[35m/[m  
+* [33m1fec498[m test
+* [33m883b270[m setupProject
+* [33mdb27587[m updateProjectV1
