@@ -1,0 +1,127 @@
+// src/App.tsx
+import { useEffect, useState } from 'preact/hooks';
+import AddExamSchedule from './AddExamSchedule';
+import AddNews from './AddNews';
+import { Link, Route, RouterProvider } from './router';
+import StudentAdvisorMatcher from './StudentAdvisorMatcher';
+import './style.css';
+
+export type StudentRow = {
+  no: number;
+  studentID?: string;
+  studentCode: string;
+  firstName: string;
+  lastName: string;
+  adviserId?: string | null;
+  adviserName?: string | null;
+};
+
+export default function App() {
+  const [rows, setRows] = useState<StudentRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadStudents();
+  }, []);
+
+  async function loadStudents() {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const res = await fetch('http://localhost:8080/api/students/', { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`โหลดข้อมูลไม่สำเร็จ (${res.status})`);
+      const data = (await res.json()) as StudentRow[];
+      setRows(data);
+    } catch (e: any) {
+      setError(e?.message || 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderAdvisor(r: StudentRow) {
+    if (r.adviserName && r.adviserName.trim() !== '') return r.adviserName;
+    if (r.adviserId) return `อ. #${r.adviserId}`;
+    return '-';
+  }
+
+  return (
+    <RouterProvider>
+      <div>
+        <header className="topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Left: Home button (like logout style) */}
+          <button
+            className="btn-logout"
+            id="btnHome"
+            onClick={() => { location.hash = '#/'; }}
+            aria-label="กลับหน้าหลัก"
+          >
+            หน้าหลัก
+          </button>
+
+          {/* Right: Logout */}
+          <button class="btn-logout" id="btnLogout">ออกจากระบบ</button>
+        </header>
+        <section class="actions">
+          <Link to="/add-news"><button class="action-btn">เพิ่มข่าวสาร</button></Link>
+          <Link to="/add-exam"><button class="action-btn">เพิ่มตารางสอบ</button></Link>
+          <Link to="/match-advisor"><button class="action-btn" id="btnMatch">จับคู่นิสิต/ที่ปรึกษา</button></Link>
+        </section>
+
+        <Route path="/">
+          <h3 className="section-title">รายชื่อนิสิตทั้งหมด</h3>
+
+          {loading && <div id="state" className="state">กำลังโหลดข้อมูล…</div>}
+          {error && <div id="state" className="state error">{error}</div>}
+
+          {!loading && !error && (
+            <div className="table-wrap" id="tableWrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th className="col-no">No.</th>
+                    <th className="col-code">รหัสนิสิต</th>
+                    <th className="col-name">ชื่อ-นามสกุล</th>
+                    <th className="col-advisor">ที่ปรึกษา</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody">
+                  {(!rows || rows.length === 0) ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: '28px 0' }}>ไม่พบข้อมูลนิสิต</td>
+                    </tr>
+                  ) : (
+                    rows.map((r, i) => {
+                      const fullName = `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim();
+                      return (
+                        <tr key={r.studentID ?? i}>
+                          <td className="col-no">{r.no ?? i + 1}</td>
+                          <td className="col-code">{r.studentCode}</td>
+                          <td className="col-name">{fullName}</td>
+                          <td className="col-advisor">{renderAdvisor(r)}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Route>
+
+        <Route path="/add-news">
+            <AddNews />
+        </Route>
+        <Route path="/match-advisor">
+            <StudentAdvisorMatcher />
+        </Route>
+        <Route path="/add-exam">
+            <AddExamSchedule />
+        </Route>
+      </div>
+    </RouterProvider>
+  );
+}
