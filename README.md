@@ -1,50 +1,93 @@
-# Welcome to your Expo app 👋
+# Project Mobile App Notification
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## 🚀 Quick Start
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
+### 1. Clone Repository
 ```bash
-npm run reset-project
+git clone https://github.com/Punnnn01/ProjectMobileAppNotification.git
+cd ProjectMobileAppNotification
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Setup Backend
 
-## Learn more
+```bash
+cd backend
 
-To learn more about developing your project with Expo, look at the following resources:
+# Install dependencies
+npm install
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+**หมายเหตุ:** ไฟล์ `.env` ถูก commit ไว้แล้วเพื่อความสะดวก (repo เป็น Private)  
+สามารถใช้งานได้ทันทีโดยไม่ต้อง setup เพิ่มเติม
 
-## Join the community
+### 3. Run Backend
+```bash
+npm run dev
+# Backend จะรันที่ http://localhost:8080
+```
 
-Join our community of developers creating universal apps.
+### 4. Setup Admin App
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+cd ../my_Admin_app
+
+# Install dependencies
+npm install
+
+# Run dev server
+npm run dev
+# Admin App จะรันที่ http://localhost:5173
+```
+
+### 5. Setup Mobile App
+
+```bash
+cd ../MobileApp
+
+# Install dependencies
+npm install
+
+# Run Expo
+npx expo start
+```
+
+## 📁 โครงสร้างโปรเจค
+
+```
+ProjectMobileAppNotification/
+├── backend/              # Express.js API + Firebase Admin
+├── my_Admin_app/        # Admin Web App (Vite + Preact)
+├── MobileApp/           # React Native Mobile App (Expo)
+├── firebaseConfig.js    # Firebase Client Config
+└── README.md
+```
+
+## 🔐 Security Notes
+
+- ⚠️ ไฟล์ `.env` **ถูก commit** เพื่อความสะดวก (**repo ต้องเป็น Private เท่านั้น!**)
+- ไฟล์ `serviceAccountKey.json` **ไม่ถูก commit** (ใช้ Base64 ใน .env แทน)
+- **อย่าเปลี่ยน repo เป็น Public** เพราะจะทำให้ Firebase credentials หลุด
+- ใช้ Firebase Rules เพื่อป้องกันการเข้าถึงข้อมูล
+
+## ⚙️ Environment Variables
+
+### Backend (.env)
+```
+FIREBASE_SERVICE_ACCOUNT_BASE64=<base64 encoded credentials>
+PORT=8080
+```
+
+## 🐛 Troubleshooting
+
+### Admin App ไม่แสดงข้อมูล
+- เช็คว่า Backend รันอยู่ที่ `http://localhost:8080`
+- เปิด Browser Console (F12) ดู error
+- เช็ค CORS settings
+
+### Firebase Authentication Error
+- เช็คว่า `.env` ถูกต้อง
+- ลอง generate Firebase key ใหม่
+
+## 📞 Contact
+
+มีปัญหาติดต่อ: [GitHub Issues](https://github.com/Punnnn01/ProjectMobileAppNotification/issues)
