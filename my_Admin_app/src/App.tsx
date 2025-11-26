@@ -8,11 +8,15 @@ import './style.css';
 
 export type StudentRow = {
   no: number;
-  studentID?: string;
-  studentCode: string;
-  firstName: string;
-  lastName: string;
-  adviserId?: string | null;
+  student_id: string;
+  student_name: string;
+  personal_info: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+  };
+  adviser?: string;
   adviserName?: string | null;
 };
 
@@ -30,11 +34,28 @@ export default function App() {
       setLoading(true);
       setError(null);
 
-      const res = await fetch('http://localhost:8080/api/students/', { headers: { Accept: 'application/json' } });
+      const res = await fetch('http://localhost:8080/api/students/', { 
+        headers: { Accept: 'application/json' } 
+      });
+      
       if (!res.ok) throw new Error(`โหลดข้อมูลไม่สำเร็จ (${res.status})`);
-      const data = (await res.json()) as StudentRow[];
-      setRows(data);
+      
+      const data = await res.json();
+      console.log('Loaded students:', data);
+      
+      // แปลงข้อมูลให้ตรงกับโครงสร้างใหม่
+      const mapped = data.map((item: any, index: number) => ({
+        no: index + 1,
+        student_id: item.student_id,
+        student_name: item.student_name,
+        personal_info: item.personal_info,
+        adviser: item.adviser,
+        adviserName: null // จะดึงชื่อจาก Teacher collection ภายหลัง
+      }));
+      
+      setRows(mapped);
     } catch (e: any) {
+      console.error('Load students error:', e);
       setError(e?.message || 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
       setRows([]);
     } finally {
@@ -44,7 +65,7 @@ export default function App() {
 
   function renderAdvisor(r: StudentRow) {
     if (r.adviserName && r.adviserName.trim() !== '') return r.adviserName;
-    if (r.adviserId) return `อ. #${r.adviserId}`;
+    if (r.adviser && r.adviser.trim() !== '') return `อ. ID: ${r.adviser}`;
     return '-';
   }
 
@@ -52,7 +73,6 @@ export default function App() {
     <RouterProvider>
       <div>
         <header className="topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          {/* Left: Home button (like logout style) */}
           <button
             className="btn-logout"
             id="btnHome"
@@ -62,9 +82,9 @@ export default function App() {
             หน้าหลัก
           </button>
 
-          {/* Right: Logout */}
           <button class="btn-logout" id="btnLogout">ออกจากระบบ</button>
         </header>
+        
         <section class="actions">
           <Link to="/add-news"><button class="action-btn">เพิ่มข่าวสาร</button></Link>
           <Link to="/add-exam"><button class="action-btn">เพิ่มตารางสอบ</button></Link>
@@ -85,22 +105,26 @@ export default function App() {
                     <th className="col-no">No.</th>
                     <th className="col-code">รหัสนิสิต</th>
                     <th className="col-name">ชื่อ-นามสกุล</th>
+                    <th className="col-email">Email</th>
+                    <th className="col-phone">เบอร์โทร</th>
                     <th className="col-advisor">ที่ปรึกษา</th>
                   </tr>
                 </thead>
                 <tbody id="tbody">
                   {(!rows || rows.length === 0) ? (
                     <tr>
-                      <td colSpan={4} style={{ textAlign: 'center', padding: '28px 0' }}>ไม่พบข้อมูลนิสิต</td>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '28px 0' }}>ไม่พบข้อมูลนิสิต</td>
                     </tr>
                   ) : (
-                    rows.map((r, i) => {
-                      const fullName = `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim();
+                    rows.map((r) => {
+                      const fullName = `${r.personal_info?.firstName || ''} ${r.personal_info?.lastName || ''}`.trim() || r.student_name;
                       return (
-                        <tr key={r.studentID ?? i}>
-                          <td className="col-no">{r.no ?? i + 1}</td>
-                          <td className="col-code">{r.studentCode}</td>
+                        <tr key={r.student_id}>
+                          <td className="col-no">{r.no}</td>
+                          <td className="col-code">{r.student_id}</td>
                           <td className="col-name">{fullName}</td>
+                          <td className="col-email">{r.personal_info?.email || '-'}</td>
+                          <td className="col-phone">{r.personal_info?.phone || '-'}</td>
                           <td className="col-advisor">{renderAdvisor(r)}</td>
                         </tr>
                       );

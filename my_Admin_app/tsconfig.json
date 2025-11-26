@@ -31,6 +31,5 @@
   ],
   "exclude": [
     "src/addNews.ts"
-  ],
-  "extends": "expo/tsconfig.base"
+  ]
 }

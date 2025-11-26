@@ -76,7 +76,7 @@ body{
   width:100%;
   border-collapse:separate;
   border-spacing:0;
-  min-width:900px; /* ให้หน้าตาเหมือนรูป */
+  min-width:900px;
 }
 .table thead th{
   background:var(--gray-1);
@@ -88,13 +88,15 @@ body{
 .table tbody td{
   padding:18px 16px;
   border-bottom:1px solid var(--border);
-  background:#efefef33; /* เทาอ่อนโปร่ง ๆ แบบในรูป */
+  background:#efefef33;
 }
 
-/* Col widths (ใกล้เคียงรูป) */
+/* Col widths */
 .col-no{ width:80px; }
 .col-code{ width:200px; }
 .col-name{ width:420px; }
+.col-email{ width:auto; }
+.col-phone{ width:auto; }
 .col-advisor{ width:auto; }
 
 /* Utility states */

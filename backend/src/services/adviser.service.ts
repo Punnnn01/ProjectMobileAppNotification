@@ -1,40 +1,39 @@
-import { db, Timestamp } from "../lib/firebase";
+import { db } from "../lib/firebase";
 import { StudentService } from "./student.service";
 
 export const AdviserService = {
   list: async () => {
     const [studentsSnap, teachersSnap] = await Promise.all([
-      db.collection("students").where("adviserId", "!=", null).get(),
-      db.collection("teachers").get()
+      db.collection("Student").where("adviser", "!=", "").get(),
+      db.collection("Teacher").get()
     ]);
 
     const teachers = new Map(teachersSnap.docs.map((d) => [d.id, d.data() as any]));
 
     return studentsSnap.docs.map((s) => {
       const sd = s.data() as any;
-      const t  = teachers.get(sd.adviserId);
+      const t  = teachers.get(sd.adviser);
       return {
-        studentID: sd.studentID,
-        studentName: `${sd.firstName} ${sd.lastName}`,
-        teacherID: sd.adviserId,
-        teacherName: t ? `${t.firstName} ${t.lastName}` : null,  // <- ใช้ firstName/lastName
-        assignedAt: sd.assignedAt || null
+        studentID: s.id,
+        studentName: sd.student_name || `${sd.personal_info?.firstName || ''} ${sd.personal_info?.lastName || ''}`.trim(),
+        teacherID: sd.adviser,
+        teacherName: t ? (t.teacher_name || `${t.personal_info?.firstName || ''} ${t.personal_info?.lastName || ''}`.trim()) : null,
+        assignedAt: null
       };
     });
   },
 
   assignMany: async (teacherID: string, studentIDs: string[]) => {
     const batch = db.batch();
-    const now = Timestamp.now();
-    const refs = studentIDs.map((sid) => db.collection("students").doc(sid));
+    const refs = studentIDs.map((sid) => db.collection("Student").doc(sid));
     const snaps = await db.getAll(...refs);
 
     let created = 0, skipped = 0;
     snaps.forEach((doc, idx) => {
       if (!doc.exists) { skipped++; return; }
       const data = doc.data() as any;
-      if (data?.adviserId) { skipped++; return; }
-      batch.update(refs[idx], { adviserId: teacherID, assignedAt: now });
+      if (data?.adviser && data.adviser !== "") { skipped++; return; }
+      batch.update(refs[idx], { adviser: teacherID });
       created++;
     });
 
@@ -48,7 +47,7 @@ export const AdviserService = {
   },
 
   remove: async (studentID: string) => {
-    await StudentService.setAdviser(studentID, null);
+    await StudentService.setAdviser(studentID, "");
     return { studentID, removed: true };
   }
 };

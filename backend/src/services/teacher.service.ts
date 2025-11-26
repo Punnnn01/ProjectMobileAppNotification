@@ -1,18 +1,29 @@
 import { db } from "../lib/firebase";
 
 export type Teacher = {
-  teacherID: string;
+  teacher_id: string;
+  teacher_name: string;
   email: string;
-  firstName: string;   // <- เปลี่ยนเป็น firstName
-  lastName: string;    // <- เปลี่ยนเป็น lastName
-  role: "teacher";
+  role: {
+    role_id: string;
+    roleName: string;
+  };
+  personal_info: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+  };
+  notification: any[];
+  chat_history: any[];
+  appointment: any[];
 };
 
-const col = () => db.collection("teachers");
+const col = () => db.collection("Teacher"); // เปลี่ยนเป็น "Teacher" ตัวใหญ่
 
 export const TeacherService = {
   getAll: async (): Promise<Teacher[]> => {
-    const snap = await col().orderBy("teacherID").get();
-    return snap.docs.map((d) => d.data() as Teacher);
+    const snap = await col().orderBy("teacher_id").get();
+    return snap.docs.map((d) => ({ ...d.data(), teacher_id: d.id } as Teacher));
   }
 };

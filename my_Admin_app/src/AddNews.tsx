@@ -67,46 +67,218 @@ export default function AddNews(): JSX.Element {
   }
 
   return (
-    <section className="container">
-      <h2 className="page-title">เพิ่มข่าวสาร</h2>
+    <div style={{ 
+      maxWidth: '800px', 
+      margin: '40px auto', 
+      padding: '0 24px'
+    }}>
+      {/* Card Container */}
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '32px',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+      }}>
+        <h2 style={{
+          fontSize: '24px',
+          fontWeight: 'bold',
+          marginBottom: '24px',
+          textAlign: 'center',
+          color: '#1f2937'
+        }}>
+          เพิ่มข่าวสาร
+        </h2>
 
-      <form id="newsForm" className="card-form" onSubmit={handleSubmit}>
-        <div className="form-row">
-          <label htmlFor="title">หัวเรื่อง <span className="req">*</span></label>
-          <input id="title" name="title" type="text" className="input" maxLength={200} required placeholder="เช่น ประกาศตารางสอบกลางภาค" ref={titleRef} />
-          <div className="hint">สูงสุด 200 ตัวอักษร</div>
-        </div>
-
-        <div className="form-row">
-          <label htmlFor="content">เนื้อหา <span className="req">*</span></label>
-          <textarea id="content" name="content" className="textarea" rows={8} required placeholder="รายละเอียดข่าว/ประกาศ..." ref={contentRef} />
-        </div>
-
-        <div className="form-row">
-          <label htmlFor="files">แนบไฟล์เอกสาร/รูปภาพ</label>
-          <input id="files" name="files" type="file" className="file-input" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" onChange={onFilesChange} ref={filesRef} />
-          <div id="filePreview" className="file-preview">
-            {previewItems.map((p) => (
-              <div className="file-chip" key={p.id}>
-                {p.url ? <img src={p.url} alt={p.name} className="thumb" /> : null}
-                <div className="file-meta">
-                  <div className="file-name">{p.name}</div>
-                  <div className="file-size">{p.sizeMB.toFixed(2)} MB</div>
-                </div>
-              </div>
-            ))}
+        <form onSubmit={handleSubmit}>
+          {/* Title Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#374151',
+              fontSize: '14px'
+            }}>
+              หัวเรื่อง <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input 
+              type="text" 
+              placeholder="เช่น ประกาศตารางสอบกลางภาค" 
+              maxLength={200} 
+              required 
+              ref={titleRef}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                border: '2px solid #d1d5db',
+                borderRadius: '8px',
+                fontSize: '14px',
+                transition: 'all 0.2s'
+              }}
+            />
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
+              สูงสุด 200 ตัวอักษร
+            </div>
           </div>
-          <div className="hint">อนุญาต: PDF, Word, Excel, PowerPoint, รูปภาพ / จำกัดไฟล์ละ ≤ 10MB</div>
-        </div>
 
-        {error && <div id="formError" className="error">{error}</div>}
-        {success && <div id="formSuccess" className="success">{success}</div>}
+          {/* Content Field */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#374151',
+              fontSize: '14px'
+            }}>
+              เนื้อหา <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <textarea 
+              rows={8} 
+              placeholder="รายละเอียดข่าว/ประกาศ..." 
+              required 
+              ref={contentRef}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                border: '2px solid #d1d5db',
+                borderRadius: '8px',
+                fontSize: '14px',
+                resize: 'vertical',
+                minHeight: '150px',
+                transition: 'all 0.2s',
+                fontFamily: 'inherit'
+              }}
+            />
+          </div>
 
-        <div className="actions-row">
-          <button type="submit" className="action-btn" disabled={submitting}>{submitting ? 'กำลังบันทึก…' : 'ยืนยันเพิ่มข่าวสาร'}</button>
-        </div>
-      </form>
-    </section>
+          {/* File Upload */}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{
+              display: 'block',
+              fontWeight: '600',
+              marginBottom: '8px',
+              color: '#374151',
+              fontSize: '14px'
+            }}>
+              แนบไฟล์เอกสาร/รูปภาพ
+            </label>
+            <input 
+              type="file" 
+              multiple 
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*" 
+              onChange={onFilesChange} 
+              ref={filesRef}
+              style={{ 
+                width: '100%', 
+                padding: '12px', 
+                border: '2px dashed #d1d5db',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                background: '#f9fafb',
+                fontSize: '14px'
+              }}
+            />
+            
+            {/* File Preview */}
+            {previewItems.length > 0 && (
+              <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {previewItems.map((p) => (
+                  <div 
+                    key={p.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px',
+                      background: '#f9fafb',
+                      borderRadius: '8px',
+                      border: '1px solid #e5e7eb'
+                    }}
+                  >
+                    {p.url && (
+                      <img 
+                        src={p.url} 
+                        alt={p.name}
+                        style={{
+                          width: '48px',
+                          height: '48px',
+                          objectFit: 'cover',
+                          borderRadius: '6px'
+                        }}
+                      />
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: '500', fontSize: '14px', color: '#1f2937' }}>
+                        {p.name}
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                        {p.sizeMB.toFixed(2)} MB
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '8px' }}>
+              อนุญาต: PDF, Word, Excel, PowerPoint, รูปภาพ / จำกัดไฟล์ละ ≤ 10MB
+            </div>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div style={{ 
+              padding: '12px 16px', 
+              background: '#fee2e2', 
+              color: '#991b1b', 
+              borderRadius: '8px', 
+              marginBottom: '16px',
+              fontWeight: '500',
+              border: '1px solid #fecaca',
+              fontSize: '14px'
+            }}>
+              ❌ {error}
+            </div>
+          )}
+
+          {/* Success Message */}
+          {success && (
+            <div style={{ 
+              padding: '12px 16px', 
+              background: '#d1fae5', 
+              color: '#065f46', 
+              borderRadius: '8px', 
+              marginBottom: '16px',
+              fontWeight: '500',
+              border: '1px solid #a7f3d0',
+              fontSize: '14px'
+            }}>
+              ✅ {success}
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button 
+            type="submit" 
+            disabled={submitting}
+            style={{
+              width: '100%',
+              background: submitting ? '#9ca3af' : '#158e6d',
+              color: 'white',
+              border: 'none',
+              padding: '14px',
+              borderRadius: '8px',
+              fontWeight: '600',
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+              fontSize: '16px'
+            }}
+          >
+            {submitting ? '⏳ กำลังบันทึก...' : 'ยืนยันเพิ่มข่าวสาร'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 

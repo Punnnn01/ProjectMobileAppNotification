@@ -1,36 +1,44 @@
 import { db, Timestamp } from "../lib/firebase";
 
 export type Student = {
-  studentID: string;
-  studentCode?: string;
+  student_id: string;
+  student_name: string;
   email: string;
-  firstName: string;
-  lastName: string;
-  role: "student";
-  adviserId: string | null;
-  assignedAt: FirebaseFirestore.Timestamp | null;
+  role: {
+    role_id: string;
+    roleName: string;
+  };
+  personal_info: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+  };
+  adviser: string;
+  notification: any[];
+  chat_history: any[];
+  appointment: any[];
 };
 
-const col = () => db.collection("students");
+const col = () => db.collection("Student"); // เปลี่ยนเป็น "Student" ตัวใหญ่
 
 export const StudentService = {
-  // ดึงนิสิตที่ยังไม่มีที่ปรึกษา (ต้องมีฟิลด์ adviserId = null จริงๆ)
+  // ดึงนิสิตที่ยังไม่มีที่ปรึกษา
   getUnassigned: async (): Promise<Student[]> => {
-    const snap = await col().where("adviserId", "==", null).get();
-    return snap.docs.map((d) => d.data() as Student);
+    const snap = await col().where("adviser", "==", "").get();
+    return snap.docs.map((d) => ({ ...d.data(), student_id: d.id } as Student));
   },
 
-  // เผื่อใช้ในหน้าแก้ไข/ตรวจสอบ
+  // ดึงนิสิตทั้งหมด
   getAll: async (): Promise<Student[]> => {
-    const snap = await col().orderBy("studentID").get();
-    return snap.docs.map((d) => d.data() as Student);
+    const snap = await col().orderBy("student_id").get();
+    return snap.docs.map((d) => ({ ...d.data(), student_id: d.id } as Student));
   },
 
   // เซ็ต/เคลียร์ที่ปรึกษา
-  setAdviser: async (studentID: string, teacherID: string | null) => {
+  setAdviser: async (studentID: string, teacherID: string) => {
     await col().doc(studentID).update({
-      adviserId: teacherID,
-      assignedAt: teacherID ? Timestamp.now() : null
+      adviser: teacherID || ""
     });
   }
 };
