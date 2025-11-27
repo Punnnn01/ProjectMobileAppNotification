@@ -74,6 +74,14 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    console.log('=== Register Button Pressed ===');
+    console.log('Student ID:', studentId);
+    console.log('First Name:', firstName);
+    console.log('Last Name:', lastName);
+    console.log('Email:', email);
+    console.log('Password length:', password.length);
+    console.log('Role:', role);
+    
     // Final validation
     if (!studentId || !firstName || !lastName || !email || !password) {
       Alert.alert('❌ กรอกข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลให้ครบทุกช่อง');
@@ -90,18 +98,25 @@ export default function RegisterScreen() {
       return;
     }
 
+    console.log('✓ Validation passed, calling register...');
     setLoading(true);
+    
     try {
       await register(email, password, firstName, lastName, role, studentId);
+      console.log('✓ Register completed successfully');
       
       // Logout ทันทีเพื่อไม่ให้ auto-login
       await logout();
+      console.log('✓ Logged out after registration');
       
       // เก็บชื่อและแสดง success modal
       setRegisteredName(`${firstName} ${lastName}`);
       setShowSuccessModal(true);
     } catch (error: any) {
-      console.error('Register error:', error);
+      console.error('❌ Register error:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      
       let message = 'เกิดข้อผิดพลาดในการลงทะเบียน';
       
       if (error.code === 'auth/email-already-in-use') {
@@ -113,6 +128,8 @@ export default function RegisterScreen() {
       } else if (error.code === 'auth/network-request-failed') {
         message = 'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้';
       } else if (error.message?.includes('รหัส')) {
+        message = error.message;
+      } else if (error.message) {
         message = error.message;
       }
       
