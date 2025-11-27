@@ -34,24 +34,48 @@ export default function App() {
       setLoading(true);
       setError(null);
 
-      const res = await fetch('http://localhost:8080/api/students/', { 
+      // 1. ดึงข้อมูลนิสิตทั้งหมด
+      const studentsRes = await fetch('http://localhost:8080/api/students/', { 
         headers: { Accept: 'application/json' } 
       });
       
-      if (!res.ok) throw new Error(`โหลดข้อมูลไม่สำเร็จ (${res.status})`);
+      if (!studentsRes.ok) throw new Error(`โหลดข้อมูลนิสิตไม่สำเร็จ (${studentsRes.status})`);
       
-      const data = await res.json();
-      console.log('Loaded students:', data);
+      const students = await studentsRes.json();
+      console.log('Loaded students:', students);
+
+      // 2. ดึงข้อมูลอาจารย์ทั้งหมด
+      const teachersRes = await fetch('http://localhost:8080/api/teachers/', { 
+        headers: { Accept: 'application/json' } 
+      });
       
-      // แปลงข้อมูลให้ตรงกับโครงสร้างใหม่
-      const mapped = data.map((item: any, index: number) => ({
-        no: index + 1,
-        student_id: item.student_id,
-        student_name: item.student_name,
-        personal_info: item.personal_info,
-        adviser: item.adviser,
-        adviserName: null // จะดึงชื่อจาก Teacher collection ภายหลัง
-      }));
+      const teachers = teachersRes.ok ? await teachersRes.json() : [];
+      console.log('Loaded teachers:', teachers);
+
+      // 3. สร้าง Map ของอาจารย์ (teacherId -> ชื่อเต็ม)
+      const teacherMap = new Map<string, string>();
+      teachers.forEach((t: any) => {
+        const fullName = t.personal_info 
+          ? `${t.personal_info.firstName} ${t.personal_info.lastName}`.trim()
+          : t.teacher_name || '';
+        teacherMap.set(t.teacher_id, fullName);
+      });
+
+      // 4. แปลงข้อมูลนิสิตและเติมชื่ออาจารย์
+      const mapped = students.map((item: any, index: number) => {
+        const adviserName = item.adviser && item.adviser.trim() !== '' 
+          ? teacherMap.get(item.adviser) || null
+          : null;
+
+        return {
+          no: index + 1,
+          student_id: item.student_id,
+          student_name: item.student_name,
+          personal_info: item.personal_info,
+          adviser: item.adviser,
+          adviserName: adviserName
+        };
+      });
       
       setRows(mapped);
     } catch (e: any) {
@@ -64,8 +88,15 @@ export default function App() {
   }
 
   function renderAdvisor(r: StudentRow) {
-    if (r.adviserName && r.adviserName.trim() !== '') return r.adviserName;
-    if (r.adviser && r.adviser.trim() !== '') return `อ. ID: ${r.adviser}`;
+    // แสดงชื่ออาจารย์ถ้ามี
+    if (r.adviserName && r.adviserName.trim() !== '') {
+      return `อ. ${r.adviserName}`;
+    }
+    // ถ้ามี ID แต่ไม่เจอชื่อ
+    if (r.adviser && r.adviser.trim() !== '') {
+      return `ID: ${r.adviser} (ไม่พบข้อมูล)`;
+    }
+    // ไม่มีที่ปรึกษา
     return '-';
   }
 

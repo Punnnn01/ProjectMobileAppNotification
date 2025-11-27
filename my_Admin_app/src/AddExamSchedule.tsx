@@ -12,6 +12,73 @@ interface ExamRow {
   examiner: string;
 }
 
+// ฟังก์ชันแปลง Excel serial date เป็นวันที่
+function excelDateToJSDate(serial: number): Date {
+  // Excel stores dates as days since 1899-12-30 (with 1900-01-01 being day 1)
+  const utc_days = Math.floor(serial - 25569);
+  const utc_value = utc_days * 86400;
+  const date_info = new Date(utc_value * 1000);
+  return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
+}
+
+// ฟังก์ชันแปลงวันที่เป็นรูปแบบที่อ่านง่าย
+function formatDate(value: any): string {
+  if (!value) return '-';
+
+  // ถ้าเป็นตัวเลข (Excel serial date)
+  if (typeof value === 'number') {
+    try {
+      const date = excelDateToJSDate(value);
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch (error) {
+      console.error('Error converting date:', error);
+      return String(value);
+    }
+  }
+
+  // ถ้าเป็น Date object
+  if (value instanceof Date) {
+    const day = value.getDate().toString().padStart(2, '0');
+    const month = (value.getMonth() + 1).toString().padStart(2, '0');
+    const year = value.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // ถ้าเป็นข้อความแล้ว (รูปแบบวันที่ต่างๆ)
+  const str = String(value).trim();
+  
+  // ลองแปลงเป็น Date
+  const parsedDate = new Date(str);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = parsedDate.getDate().toString().padStart(2, '0');
+    const month = (parsedDate.getMonth() + 1).toString().padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+
+  // ถ้าแปลงไม่ได้ ให้คืนค่าเดิม
+  return str;
+}
+
+// ฟังก์ชันแปลงเวลา
+function formatTime(value: any): string {
+  if (!value) return '-';
+
+  // ถ้าเป็นตัวเลข (Excel time serial - fraction of day)
+  if (typeof value === 'number' && value < 1) {
+    const totalSeconds = Math.round(value * 86400);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
+
+  // ถ้าเป็นข้อความ
+  return String(value).trim();
+}
+
 const AddExamSchedule = (): JSX.Element => {
   const [rows, setRows] = useState<ExamRow[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -26,24 +93,43 @@ const AddExamSchedule = (): JSX.Element => {
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const data = evt.target?.result;
-      const workbook = XLSX.read(data, { type: 'binary' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { 
+          type: 'binary',
+          cellDates: true // พยายามแปลงวันที่อัตโนมัติ
+        });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
-      const parsed = json.map((row) => ({
-        date: row['วันที่'],
-        time: row['เวลา'],
-        subject: row['วิชา'],
-        group: row['หมู่เรียน'],
-        studentCount: Number(row['จำนวนนิสิต']),
-        room: row['ห้องสอบ'],
-        examiner: row['กรรมการคุมสอบ'],
-      })) as ExamRow[];
+        console.log('Raw Excel data:', json);
 
-      setRows(parsed);
-      setUploading(false);
+        const parsed = json.map((row) => {
+          const dateValue = row['วันที่'];
+          const timeValue = row['เวลา'];
+
+          console.log('Processing row:', { dateValue, timeValue });
+
+          return {
+            date: formatDate(dateValue),
+            time: formatTime(timeValue),
+            subject: row['วิชา'] || '-',
+            group: row['หมู่เรียน'] || '-',
+            studentCount: Number(row['จำนวนนิสิต']) || 0,
+            room: row['ห้องสอบ'] || '-',
+            examiner: row['กรรมการคุมสอบ'] || '-',
+          };
+        }) as ExamRow[];
+
+        console.log('Parsed data:', parsed);
+        setRows(parsed);
+      } catch (error) {
+        console.error('Error parsing file:', error);
+        alert('❌ เกิดข้อผิดพลาดในการอ่านไฟล์');
+      } finally {
+        setUploading(false);
+      }
     };
 
     reader.readAsBinaryString(file);

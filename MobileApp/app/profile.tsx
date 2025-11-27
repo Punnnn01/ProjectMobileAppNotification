@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -45,7 +45,20 @@ export default function ProfileScreen() {
       if (!user || !userProfile) return;
 
       const collectionName = userProfile.role.role_id === 'student' ? 'Student' : 'Teacher';
-      const docRef = doc(db, collectionName, user.uid);
+      
+      // ค้นหา document ID จาก auth_uid
+      const q = query(
+        collection(db, collectionName),
+        where('auth_uid', '==', user.uid)
+      );
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        throw new Error('ไม่พบข้อมูลผู้ใช้');
+      }
+
+      const docId = querySnapshot.docs[0].id;
+      const docRef = doc(db, collectionName, docId);
 
       const nameField = userProfile.role.role_id === 'student' ? 'student_name' : 'teacher_name';
 

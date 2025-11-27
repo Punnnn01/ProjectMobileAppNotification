@@ -74,7 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (!studentSnapshot.empty) {
         console.log('Found in Student collection');
-        setUserProfile(studentSnapshot.docs[0].data() as UserProfile);
+        const profileData = studentSnapshot.docs[0].data() as UserProfile;
+        console.log('Profile data:', profileData.personal_info);
+        setUserProfile(profileData);
         return;
       }
       
@@ -87,12 +89,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (!teacherSnapshot.empty) {
         console.log('Found in Teacher collection');
-        setUserProfile(teacherSnapshot.docs[0].data() as UserProfile);
+        const profileData = teacherSnapshot.docs[0].data() as UserProfile;
+        console.log('Profile data:', profileData.personal_info);
+        setUserProfile(profileData);
       } else {
         console.log('Profile not found in any collection');
+        setUserProfile(null);
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
+      setUserProfile(null);
     }
   };
 
@@ -100,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('Attempting login for:', email);
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     console.log('Login successful:', userCredential.user.uid);
-    await fetchUserProfileByAuthUID(userCredential.user.uid);
+    // Profile จะถูก fetch โดย onAuthStateChanged
   }, []);
 
   const register = useCallback(async (
@@ -132,41 +138,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const uid = userCredential.user.uid;
       console.log('✓ Auth user created with UID:', uid);
 
-      // 2. สร้างข้อมูล user
-      const userData = {
-        role: {
-          role_id: role === 'student' ? 'student' : 'teacher',
-          roleName: role === 'student' ? 'Student' : 'Teacher'
-        },
-        personal_info: {
-          firstName,
-          lastName,
-          email,
-          phone: ''
-        },
-        notification: [],
-        adviser: role === 'student' ? '' : undefined,
-        chat_history: [],
-        auth_uid: uid // เก็บ UID จาก Authentication ไว้อ้างอิง
-      };
-
-      // 3. บันทึกลง Firestore โดยใช้ studentId เป็น document ID
+      // 2. สร้างข้อมูล user แยก Student และ Teacher
       console.log('Step 2: Saving to Firestore collection:', collectionName, 'with ID:', studentId);
       
       if (role === 'student') {
         await setDoc(doc(db, collectionName, studentId), {
-          ...userData,
           student_id: studentId,
           student_name: `${firstName} ${lastName}`,
           email: email,
+          auth_uid: uid,
+          role: {
+            role_id: 'student',
+            roleName: 'Student'
+          },
+          personal_info: {
+            firstName,
+            lastName,
+            email,
+            phone: ''
+          },
+          adviser: '', // Student มีฟิลด์ adviser
+          notification: [],
+          chat_history: [],
           appointment: []
         });
       } else {
         await setDoc(doc(db, collectionName, studentId), {
-          ...userData,
           teacher_id: studentId,
           teacher_name: `${firstName} ${lastName}`,
           email: email,
+          auth_uid: uid,
+          role: {
+            role_id: 'teacher',
+            roleName: 'Teacher'
+          },
+          personal_info: {
+            firstName,
+            lastName,
+            email,
+            phone: ''
+          },
+          // Teacher ไม่มีฟิลด์ adviser
+          notification: [],
+          chat_history: [],
           appointment: []
         });
       }
@@ -174,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('✓ User data saved to Firestore with custom ID');
       console.log('=== Registration Complete ===');
 
-      setUserProfile(userData);
+      // ไม่ต้อง setUserProfile เพราะจะ logout ทันที
     } catch (error: any) {
       console.error('❌ Registration Error:', error);
       console.error('Error code:', error.code);
@@ -185,8 +199,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     console.log('Logging out...');
-    await signOut(auth);
+    setUser(null);
     setUserProfile(null);
+    await signOut(auth);
+    console.log('✓ Logged out, user and profile cleared');
   }, []);
 
   const value = useMemo(() => ({
