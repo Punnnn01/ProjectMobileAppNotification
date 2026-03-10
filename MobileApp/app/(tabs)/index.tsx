@@ -11,7 +11,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  limit,
   orderBy,
   query,
   serverTimestamp,
@@ -43,14 +42,7 @@ import {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// ⚠️ เปลี่ยน IP_ADDRESS เป็น IP จริงของเครื่อง PC (เปิด CMD พิมพ์ ipconfig ดู IPv4)
-const PC_IP = '192.168.1.x'; // ← เปลี่ยนตรงนี้!
-
-const CHATBOT_URL = (() => {
-  if (typeof window !== 'undefined') return 'http://localhost:5000/chat';  // web dev
-  if (Platform.OS === 'android' && __DEV__) return 'http://10.0.2.2:5000/chat'; // android emulator
-  return `http://${PC_IP}:5000/chat`; // มือถือจริง (APK)
-})();
+const CHATBOT_URL = 'https://alluring-stillness-production.up.railway.app/chat';
 
 const QUICK_REPLIES = [
   { label: "ค่าเทอม", text: "ค่าเทอมเท่าไหร่?" },
@@ -100,8 +92,8 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    fetchNews();
-  }, []);
+    if (userId) fetchNews();
+  }, [userId]);
   useEffect(() => {
     if (user && userId) loadBookmarks();
   }, [user, userId]);
@@ -116,26 +108,36 @@ export default function HomeScreen() {
   };
 
   const fetchNews = useCallback(async () => {
+    if (!userId) return;
     try {
-      const q = query(
-        collection(db, "News"),
-        orderBy("time", "desc"),
-        limit(5),
-      );
+      const q = query(collection(db, "News"), orderBy("time", "desc"));
       const snap = await getDocs(q);
-      setNews(
-        snap.docs.map((d) => ({
-          id: d.id,
-          title: d.data().title || "ไม่มีชื่อ",
-          content: d.data().content || "",
-          time: d.data().time,
-        })),
-      );
+      const allNews = snap.docs.map((d) => ({
+        id: d.id,
+        title: d.data().title || "ไม่มีชื่อ",
+        content: d.data().content || "",
+        time: d.data().time,
+        group_id: d.data().group_id || 'all',
+      }));
+
+      // ดึงกลุ่มของ user
+      const col = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+      const userDoc = await getDoc(doc(db, col, userId));
+      const userGroupIds: string[] = userDoc.data()?.group_ids || [];
+
+      const visible = allNews.filter((n) => {
+        if (!n.group_id || n.group_id === 'all') return true;
+        if (n.group_id === `personal_${userId}`) return true;
+        if (userGroupIds.includes(n.group_id)) return true;
+        return false;
+      }).slice(0, 5);
+
+      setNews(visible);
     } catch {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId, userProfile]);
 
   const toggleBookmark = async (newsId: string, current: boolean) => {
     if (!user || !userId) {

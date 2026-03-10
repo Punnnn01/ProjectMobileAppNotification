@@ -16,7 +16,7 @@ const upload = multer({
  */
 router.post('/', upload.array('files', 10), async (req: Request, res: Response) => {
   try {
-    const { title, content, category, author_id, author_name, author_role, group_id, links: linksRaw } = req.body;
+    const { title, content, category, author_id, author_name, author_role, group_id, student_id_target, links: linksRaw } = req.body;
 
     // parse links จาก JSON string ที่ส่งมาใน FormData
     let links: { label: string; url: string }[] = [];
@@ -66,7 +66,8 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
         admin_name: author_name || 'Admin',
         role: author_role || 'admin'
       },
-      group_id: group_id || 'all',
+      group_id: student_id_target ? `personal_${student_id_target}` : (group_id || 'all'),
+      student_id_target: student_id_target || null,
       files: filesData.map(f => ({
         file_name: f.file_name,
         fileURL: f.fileURL,
@@ -101,9 +102,16 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
       console.log(`✅ Created ${filesData.length} News_Files documents`);
     }
 
-    // 4. ดึง Push Tokens ตาม group_id
+    // 4. ดึง Push Tokens ตาม mode: all / group / personal
     let allTokens: string[] = [];
-    if (!group_id || group_id === 'all') {
+    if (student_id_target) {
+      // โหมด personal — ส่งให้คนเดียว
+      const studentDoc = await db.collection('Student').doc(student_id_target).get();
+      const token = studentDoc.data()?.pushToken;
+      if (token) allTokens.push(token);
+      console.log(`👤 Personal mode → student: ${student_id_target}, token: ${token ? 'found' : 'not found'}`);
+    } else if (!group_id || group_id === 'all') {
+      // โหมด all — ส่งทุกคน
       const [studentsSnap, teachersSnap] = await Promise.all([
         db.collection('Student').where('notificationEnabled', '==', true).get(),
         db.collection('Teacher').where('notificationEnabled', '==', true).get()
@@ -111,9 +119,12 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
       allTokens = [...studentsSnap.docs, ...teachersSnap.docs]
         .map(doc => doc.data().pushToken)
         .filter((t): t is string => !!t);
+      console.log(`📢 All mode → ${allTokens.length} tokens`);
     } else {
+      // โหมด group — ส่งเฉพาะกลุ่ม
       const groupDoc = await db.collection('Group_Notification').doc(group_id).get();
       const studentIds: string[] = groupDoc.exists ? (groupDoc.data()?.student_id || []) : [];
+      console.log(`👥 Group mode → group: ${group_id}, members: ${studentIds.length}`);
       for (let i = 0; i < studentIds.length; i += 10) {
         const chunk = studentIds.slice(i, i + 10);
         const snap = await db.collection('Student')

@@ -24,7 +24,7 @@ export default function SendNotification() {
 
     try {
       // ส่งผ่าน Backend API
-      const response = await fetch('http://localhost:8080/api/notifications/send', {
+      const response = await fetch('https://projectmobileappnotification-production.up.railway.app/api/notifications/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

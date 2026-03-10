@@ -3,7 +3,7 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { LoggedInUser } from "./Login";
 
-const API_BASE = "http://localhost:8080";
+const API_BASE = "https://projectmobileappnotification-production.up.railway.app";
 
 interface Group {
   group_id: string;

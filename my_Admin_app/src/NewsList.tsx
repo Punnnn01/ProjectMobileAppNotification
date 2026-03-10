@@ -63,9 +63,10 @@ export default function NewsList({ currentUser }: Props): JSX.Element {
   async function fetchNews() {
     try {
       setLoading(true);
+      const BACKEND = 'https://projectmobileappnotification-production.up.railway.app';
       const url = currentUser.role === 'teacher'
-        ? `http://localhost:8080/api/news?author_id=${currentUser.docId}`
-        : `http://localhost:8080/api/news`;
+        ? `${BACKEND}/api/news?author_id=${currentUser.docId}`
+        : `${BACKEND}/api/news`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -100,7 +101,7 @@ export default function NewsList({ currentUser }: Props): JSX.Element {
     let ok = 0, fail = 0;
     for (const id of selectedIds) {
       try {
-        const res = await fetch(`http://localhost:8080/api/news/${id}`, { method: 'DELETE' });
+        const res = await fetch(`https://projectmobileappnotification-production.up.railway.app/api/news/${id}`, { method: 'DELETE' });
         res.ok ? ok++ : fail++;
       } catch { fail++; }
     }

@@ -7,7 +7,7 @@ import "./style.css";
 
 type SubmitResult = { ok: true; id?: string } | { ok: false; message: string };
 
-const BACKEND_URL = "http://localhost:8080";
+const BACKEND_URL = "https://projectmobileappnotification-production.up.railway.app";
 
 interface Group {
   group_id: string;

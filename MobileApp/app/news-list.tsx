@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
+import { useAuth } from '@/context/AuthContext';
 
 interface NewsFile { file_name: string; fileURL: string; file_size?: number; mime_type?: string; }
 interface NewsItem {
@@ -18,12 +19,13 @@ interface NewsItem {
 
 export default function NewsListScreen() {
   const router = useRouter();
+  const { userId, userProfile } = useAuth();
   const [news, setNews]         = useState<NewsItem[]>([]);
   const [filtered, setFiltered] = useState<NewsItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
 
-  useEffect(() => { fetchAllNews(); }, []);
+  useEffect(() => { if (userId) fetchAllNews(); }, [userId]);
   useEffect(() => {
     const q = search.trim().toLowerCase();
     setFiltered(!q ? news : news.filter(n =>
@@ -34,8 +36,22 @@ export default function NewsListScreen() {
   const fetchAllNews = async () => {
     try {
       const snap = await getDocs(query(collection(db, 'News'), orderBy('time', 'desc')));
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
-      setNews(data); setFiltered(data);
+      const allNews = snap.docs.map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
+
+      // ดึงกลุ่มที่ user อยู่
+      const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
+      const userDoc = await getDoc(doc(db, col, userId!));
+      const userGroupIds: string[] = userDoc.data()?.group_ids || [];
+
+      // กรองข่าว: แสดงถ้า all / กลุ่มที่ user อยู่ / ส่งตรงถึง user นี้
+      const visible = allNews.filter(n => {
+        if (!n.group_id || n.group_id === 'all') return true;
+        if (n.group_id === `personal_${userId}`) return true;
+        if (userGroupIds.includes(n.group_id)) return true;
+        return false;
+      });
+
+      setNews(visible); setFiltered(visible);
     } catch {}
     finally { setLoading(false); }
   };

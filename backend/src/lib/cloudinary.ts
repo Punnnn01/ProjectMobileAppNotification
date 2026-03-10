@@ -29,13 +29,19 @@ export async function uploadToCloudinary(
     if (mimetype.startsWith('image/')) resourceType = 'image';
     else if (mimetype.startsWith('video/')) resourceType = 'video';
 
+    // สร้าง public_id จากชื่อไฟล์จริง (safe)
+    const safeFilename = originalName
+      .replace(/[^a-zA-Z0-9ก-๛._-]/g, '_')
+      .replace(/_{2,}/g, '_');
+    const uniqueId = `${Date.now()}_${safeFilename}`;
+
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         resource_type: resourceType,
         folder: 'news_files',
-        use_filename: true,
-        unique_filename: true,
-        // สำหรับ raw file (PDF, Word, Excel ฯลฯ) ให้ access ได้โดยตรง
+        public_id: uniqueId,
+        use_filename: false,
+        unique_filename: false,
         access_mode: 'public',
       },
       (error: any, result: any) => {
