@@ -160,26 +160,20 @@ export default function NewsDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <Stack.Screen options={{ headerShown: false }} />
-
-      {/* Custom Header */}
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.75}>
-          <Ionicons name="arrow-back" size={20} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle} numberOfLines={1}>รายละเอียดข่าว</Text>
-        <TouchableOpacity
-          style={[styles.iconBtn, isBookmarked && styles.iconBtnActive]}
-          onPress={toggleBookmark}
-          disabled={bookmarking}
-          activeOpacity={0.8}
-        >
-          {bookmarking
-            ? <ActivityIndicator size="small" color={isBookmarked ? '#1B8B6A' : '#fff'} />
-            : <Ionicons name={isBookmarked ? 'bookmark' : 'bookmark-outline'} size={18} color={isBookmarked ? '#1B8B6A' : '#fff'} />
-          }
-        </TouchableOpacity>
-      </View>
+      <Stack.Screen options={{
+        title: 'รายละเอียดข่าว',
+        headerStyle: { backgroundColor: '#1B8B6A' },
+        headerTintColor: '#fff',
+        headerTitleStyle: { fontWeight: '700' },
+        headerRight: () => (
+          <TouchableOpacity onPress={toggleBookmark} disabled={bookmarking} style={{ marginRight: 8 }}>
+            {bookmarking
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Ionicons name={isBookmarked ? 'bookmark' : 'bookmark-outline'} size={22} color="#fff" />
+            }
+          </TouchableOpacity>
+        ),
+      }} />
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
 
@@ -271,7 +265,6 @@ export default function NewsDetailScreen() {
             </View>
 
             {news.files!.map((file, i) => {
-              const isDown = downloadingFile === file.file_name;
               const fc = getFileColor(file.mime_type, file.file_name);
               return (
                 <View key={i} style={[styles.fileRow, i < news.files!.length - 1 && styles.fileRowBorder]}>
@@ -333,19 +326,6 @@ const styles = StyleSheet.create({
   errorText:     { fontSize: 16, color: '#888', fontWeight: '600' },
   backPill:      { backgroundColor: '#1B8B6A', paddingHorizontal: 24, paddingVertical: 11, borderRadius: 24 },
   backPillText:  { color: '#fff', fontWeight: '700' },
-
-  // top bar
-  topBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#1B8B6A', paddingHorizontal: 14, paddingVertical: 12,
-  },
-  iconBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  iconBtnActive: { backgroundColor: '#fff' },
-  topBarTitle:   { flex: 1, fontSize: 17, fontWeight: '700', color: '#fff' },
 
   // hero
   heroCard: {
