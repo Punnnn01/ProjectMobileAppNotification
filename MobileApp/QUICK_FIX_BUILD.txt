@@ -1,0 +1,60 @@
+🔥 แก้ไข EAS Build Failed - Android
+=====================================
+
+❌ Error: Gradle build failed with unknown error
+
+✅ แก้ไขทันที - เลือก 1 วิธี:
+================================
+
+วิธีที่ 1: ใช้ Batch Script (แนะนำ)
+------------------------------------
+Double-click:
+  fix-and-build.bat
+
+สคริปต์จะทำให้อัตโนมัติ:
+  1. ติดตั้ง expo-file-system
+  2. Install dependencies
+  3. Clean cache
+  4. Build APK (preview mode)
+
+
+วิธีที่ 2: Manual Commands
+---------------------------
+เปิด PowerShell และรันทีละคำสั่ง:
+
+# 1. ติดตั้ง missing dependency
+npx expo install expo-file-system
+
+# 2. Install dependencies
+npm install
+
+# 3. Clean และ Build
+npx expo prebuild --clean
+eas build --platform android --profile preview --clear-cache
+
+
+🎯 สาเหตุที่เป็นไปได้:
+========================
+1. ไม่มี expo-file-system (ใช้ใน news/[id].tsx)
+2. Missing appVersionSource config (แก้แล้ว ✓)
+3. Gradle build timeout/memory issue
+4. React Native Firebase compatibility
+
+
+💡 Tips:
+========
+- ใช้ profile "preview" แทน "production" = build เร็วกว่า
+- ถ้ายัง fail ให้ดู detailed logs ที่ EAS dashboard
+- ลอง build ใน Development mode ก่อน
+
+
+📖 อ่านเพิ่มเติม:
+=================
+FIX_EAS_BUILD.md
+
+
+🔗 Useful Links:
+================
+- Build Logs: https://expo.dev/accounts/krittanat/projects/ku-noti-app/builds/
+- EAS Build Docs: https://docs.expo.dev/build/introduction/
+- Troubleshooting: https://docs.expo.dev/build-reference/troubleshooting/

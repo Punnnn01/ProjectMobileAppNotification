@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { NotificationProvider } from '@/context/NotificationContext';
 import { View, ActivityIndicator, Text } from 'react-native';
 
 function RootLayoutNav() {
@@ -54,9 +55,16 @@ function RootLayoutNav() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="register" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="profile" options={{ headerShown: false }} />
-        <Stack.Screen name="schedule" options={{ headerShown: false }} />
-        <Stack.Screen name="bookmark" options={{ headerShown: false }} />
+        <Stack.Screen name="profile" options={{
+          headerShown: true,
+          title: 'โปรไฟล์',
+          headerStyle: { backgroundColor: '#1B8B6A' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: '700' },
+        }} />
+        {/* เปลี่ยนเป็น true เพื่อให้แสดง Header */}
+        <Stack.Screen name="schedule" options={{ headerShown: true }} />
+        <Stack.Screen name="bookmark" options={{ headerShown: true }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="auto" />
@@ -67,7 +75,9 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <NotificationProvider>
+        <RootLayoutNav />
+      </NotificationProvider>
     </AuthProvider>
   );
 }

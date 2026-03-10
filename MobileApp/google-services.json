@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "535692820291",
+    "project_id": "appnoti-fa1cc",
+    "storage_bucket": "appnoti-fa1cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:535692820291:android:f3007574dc0076e20d39f6",
+        "android_client_info": {
+          "package_name": "com.ku.kunoti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFVUL7x5LOXVvWKWBV5lK1YYkFHN9_Aqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "ae7f99d1-9ddb-4881-9e11-ea7e15edccda"
+      }
+    },
+    "android": {
+      "package": "com.krittanat.kunoti"
+    }
+  }
+}

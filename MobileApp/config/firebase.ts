@@ -1,6 +1,8 @@
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+// Firebase v9 - Expo Go รองรับ
+import { initializeApp } from 'firebase/app';
+import { initializeAuth, getReactNativePersistence, browserLocalPersistence, indexedDBLocalPersistence } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAaK8n1I0JoWnvx6wvGM6GF1kn2Dz9zWNs",
@@ -12,7 +14,24 @@ const firebaseConfig = {
   measurementId: "G-J0Y07YPZSB"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+// ตั้ง Auth Persistence ให้ถูกต้องตาม Platform
+// - Mobile (iOS/Android): ใช้ AsyncStorage → session อยู่แม้ปิดแอป
+// - Web: ใช้ indexedDB/localStorage → session อยู่แม้ refresh หรือปิด tab
+let auth;
+if (Platform.OS === 'web') {
+  auth = initializeAuth(app, {
+    persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+  });
+} else {
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+}
+
+export { auth };
 export const db = getFirestore(app);
 export default app;

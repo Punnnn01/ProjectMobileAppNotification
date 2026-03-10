@@ -1,0 +1,201 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // Helper Functions
+    // ============================================
+    
+    // ตรวจสอบว่า user login แล้วหรือยัง
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // ตรวจสอบว่าเป็น owner ของ document นี้หรือไม่
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // ตรวจสอบว่าเป็น Admin หรือไม่
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/Admin/$(request.auth.uid));
+    }
+    
+    // ตรวจสอบว่า auth_uid ตรงกับ document หรือไม่
+    function isOwnerByAuthUid() {
+      return isAuthenticated() && resource.data.auth_uid == request.auth.uid;
+    }
+    
+    // ============================================
+    // Student Collection
+    // ============================================
+    match /Student/{studentId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง: ตอน register - ตรวจสอบว่า auth_uid ที่จะสร้างตรงกับ user ที่ login
+      allow create: if isAuthenticated() && 
+                       request.resource.data.auth_uid == request.auth.uid;
+      
+      // อัปเดต: เฉพาะเจ้าของ (ตรวจสอบจาก resource ที่มีอยู่แล้ว) หรือ Admin
+      allow update: if (isAuthenticated() && resource.data.auth_uid == request.auth.uid) || isAdmin();
+      
+      // ลบ: เฉพาะ Admin
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Teacher Collection
+    // ============================================
+    match /Teacher/{teacherId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง: ตอน register - ตรวจสอบว่า auth_uid ที่จะสร้างตรงกับ user ที่ login
+      allow create: if isAuthenticated() && 
+                       request.resource.data.auth_uid == request.auth.uid;
+      
+      // อัปเดต: เฉพาะเจ้าของ (ตรวจสอบจาก resource ที่มีอยู่แล้ว) หรือ Admin
+      allow update: if (isAuthenticated() && resource.data.auth_uid == request.auth.uid) || isAdmin();
+      
+      // ลบ: เฉพาะ Admin
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Admin Collection
+    // ============================================
+    match /Admin/{adminId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin เท่านั้น
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // notification Collection
+    // ============================================
+    match /notification/{notifId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Subject Collection
+    // ============================================
+    match /Subject/{subjectId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // schedule Collection
+    // ============================================
+    match /schedule/{scheduleId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // News Collection
+    // ============================================
+    match /News/{newsId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Message Collection (Chatbot)
+    // ============================================
+    match /Message/{messageId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง: ทุกคนที่ login แล้ว (สำหรับแชท)
+      allow create: if isAuthenticated();
+      
+      // อัปเดต/ลบ: เฉพาะ Admin
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // chat_history Collection
+    // ============================================
+    match /chat_history/{chatId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง: ทุกคนที่ login แล้ว
+      allow create: if isAuthenticated();
+      
+      // อัปเดต/ลบ: เฉพาะเจ้าของแชทหรือ Admin
+      allow update: if isAuthenticated() || isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Adviser Collection
+    // ============================================
+    match /Adviser/{adviserId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง/อัปเดต/ลบ: เฉพาะ Admin
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // appointment Collection
+    // ============================================
+    match /appointment/{appointmentId} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // สร้าง: ทุกคนที่ login แล้ว (นิสิตสามารถนัดหมายได้)
+      allow create: if isAuthenticated();
+      
+      // อัปเดต/ลบ: เฉพาะ Admin หรือ Teacher
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ============================================
+    // Default Rule (Fallback)
+    // ============================================
+    // สำหรับ collections อื่นๆ ที่ยังไม่ได้กำหนด
+    match /{document=**} {
+      // อ่านได้: ถ้า login แล้ว
+      allow read: if isAuthenticated();
+      
+      // เขียน: เฉพาะ Admin
+      allow write: if isAdmin();
+    }
+  }
+}

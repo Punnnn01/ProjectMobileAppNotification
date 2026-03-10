@@ -1,0 +1,88 @@
+const BACKEND_URL = 'http://localhost:3000'; // Node.js Backend
+
+const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    // ใช้ชื่อไฟล์เป็นหัวข้อ (ตัดนามสกุลออก)
+    const title = fileName.replace(/\.[^/.]+$/, '');
+    const content = contentRef.current?.value.trim() ?? '';
+    const file = filesRef.current?.files?.[0];
+
+    if (!file) return setError('กรุณาอัปโหลดไฟล์ตารางสอบ');
+
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('content', content);
+    fd.append('files', file);
+
+    setSubmitting(true);
+    
+    // Step 1: บันทึกตารางสอบ
+    const result = await postExamSchedule(fd);
+    
+    if (!result.ok) {
+      setSubmitting(false);
+      return setError(result.message || 'ไม่สามารถบันทึกตารางสอบได้');
+    }
+
+    // Step 2: ส่ง Push Notification
+    const newsId = result.id || '';
+    const pushResult = await sendPushNotification(title, newsId);
+    
+    setSubmitting(false);
+
+    if (pushResult.ok) {
+      setSuccess(`บันทึกตารางสอบสำเร็จ! ✅ ส่ง Push Notification แล้ว (${pushResult.count} คน)`);
+    } else {
+      setSuccess('บันทึกตารางสอบสำเร็จ! ⚠️ แต่ส่ง Push Notification ไม่สำเร็จ');
+    }
+    
+    // Reset
+    if (contentRef.current) contentRef.current.value = '';
+    if (filesRef.current) filesRef.current.value = '';
+    setRows([]);
+    setColumns([]);
+    setGroupedData([]);
+    setFileName('');
+    setFileType(null);
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+      setPdfUrl(null);
+    }
+  };
+
+async function sendPushNotification(examTitle: string, newsId: string): Promise<{ ok: boolean; count?: number }> {
+  try {
+    console.log('📤 Sending push notification for exam schedule:', examTitle);
+    
+    const res = await fetch(`${BACKEND_URL}/api/notifications/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: '📅 ตารางสอบใหม่',
+        body: examTitle,
+        targetGroup: 'all',
+        newsId: newsId
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    console.log('✅ Push notification sent:', data);
+    
+    return { 
+      ok: true, 
+      count: data.sentCount || 0 
+    };
+  } catch (e: any) {
+    console.error('❌ Failed to send push notification:', e);
+    return { ok: false };
+  }
+}

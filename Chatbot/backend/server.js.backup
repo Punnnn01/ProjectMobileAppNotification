@@ -1,0 +1,56 @@
+// server.js
+const express = require('express');
+const cors = require('cors');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+require('dotenv').config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+app.post('/chat', async (req, res) => {
+  try {
+    const { prompt, history } = req.body; // รับประวัติการคุยจาก Frontend
+
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      systemInstruction: `
+        คุณคือ "พี่บอทแนะแนว" ของคณะวิศวกรรมคอมพิวเตอร์ ทำหน้าที่ให้ข้อมูลหลักสูตรและค่าเทอม
+        
+        [ข้อมูลหลักสูตรรายวิชา]
+        - ปี 1: เน้นพื้นฐาน (Calculus 1&2, Physics, Intro to Programming, English)
+        - ปี 2: เน้นวิชาแกนคอมพิวเตอร์ (Data Structures, Discrete Math, Digital Logic, Computer Organization)
+        - ปี 3: เน้นวิชาขั้นสูง (Operating Systems, Database, Software Engineering, Computer Networks)
+        - ปี 4: เน้นการประยุกต์และจบการศึกษา (Senior Project 1&2, Distributed Systems, วิชาเลือกเฉพาะทาง)
+
+        [ข้อมูลค่าเทอม]
+        - ภาคปกติ: 15,000 บาทต่อเทอม
+        - ภาคพิเศษ: 35,000 บาทต่อเทอม
+
+        [กฎการโต้ตอบและถามกลับ]
+        1. หากถาม "ค่าเทอม" แต่ไม่ระบุภาค: ให้ถามกลับว่า "สนใจภาคปกติ หรือภาคพิเศษครับ?"
+        2. หากถาม "วิชาเรียน/หลักสูตร": ให้ถามกลับว่า "อยากดูของชั้นปีไหนครับ? (ปี 1-4)"
+        3. หากผู้ใช้ตอบสั้นๆ เช่น "ปกติ" หรือ "ปี 2" ให้ใช้ประวัติการคุยก่อนหน้าเพื่อตอบให้ตรงเรื่อง
+        
+        [การติดต่อ] ห้องธุรการ ตึก 8 ชั้น 3 เบอร์ 02-xxx-xxxx
+        คำพูด: สุภาพ เป็นกันเอง ห้ามมโนข้อมูลเอง
+      `
+    });
+
+    // เริ่มการแชทแบบมีประวัติ (Chat Session)
+    const chat = model.startChat({
+      history: history || [], // ใช้ประวัติที่ส่งมาจาก Frontend
+    });
+
+    const result = await chat.sendMessage(prompt);
+    res.json({ message: result.response.text() });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "เกิดข้อผิดพลาดในการเชื่อมต่อ Gemini" });
+  }
+});
+
+app.listen(5000, () => console.log('Server running on port 5000'));
