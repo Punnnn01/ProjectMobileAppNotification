@@ -6,8 +6,6 @@ import {
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -29,7 +27,7 @@ export default function NewsDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
-  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
 
   useEffect(() => { if (id) fetchNews(); else setLoading(false); }, [id]);
 
@@ -72,23 +70,30 @@ export default function NewsDetailScreen() {
     } finally { setBookmarking(false); }
   };
 
-  const openFile = async (file: NewsFile) => {
+  // เปิดไฟล์ — รูปภาพเปิดตรง, เอกสารผ่าน Google Docs Viewer
+  const handleOpenFile = async (file: NewsFile) => {
     try {
-      if (await Linking.canOpenURL(file.fileURL)) await Linking.openURL(file.fileURL);
-      else Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดไฟล์นี้ได้');
-    } catch { Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดไฟล์ได้'); }
-  };
+      const mime = file.mime_type || '';
+      const name = (file.file_name || '').toLowerCase();
+      const isImage = mime.startsWith('image/');
 
-  const downloadFile = async (file: NewsFile) => {
-    setDownloadingFile(file.file_name);
-    try {
-      const localUri = `${FileSystem.documentDirectory}${file.file_name.replace(/[^\w.-]/g, '_')}`;
-      const res = await FileSystem.downloadAsync(file.fileURL, localUri);
-      if (res.status === 200 && await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(res.uri, { mimeType: file.mime_type || 'application/octet-stream', dialogTitle: `บันทึก ${file.file_name}` });
-      } else Alert.alert('ดาวน์โหลดสำเร็จ', `บันทึกที่: ${res.uri}`);
-    } catch (e: any) { Alert.alert('ข้อผิดพลาด', e.message); }
-    finally { setDownloadingFile(null); }
+      let targetUrl: string;
+      if (isImage) {
+        // รูปภาพ: เปิด URL ตรงๆ
+        targetUrl = file.fileURL;
+      } else {
+        // PDF / Word / Excel / PPT: ใช้ Google Docs Viewer
+        // ต้องใช้ URL ที่ไม่มี fl_attachment เพื่อให้ viewer โหลดได้
+        const cleanUrl = file.fileURL
+          .replace('/upload/fl_attachment/', '/upload/')
+          .replace('/upload/fl_attachment,', '/upload/');
+        targetUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(cleanUrl)}&embedded=false`;
+      }
+
+      await Linking.openURL(targetUrl);
+    } catch {
+      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดไฟล์ได้');
+    }
   };
 
   const formatDate = (ts: any) => {
@@ -281,27 +286,15 @@ export default function NewsDetailScreen() {
                     {file.file_size ? <Text style={styles.fileSize}>{fmtSize(file.file_size)}</Text> : null}
                   </View>
 
-                  {/* Actions */}
-                  <View style={styles.fileActions}>
-                    <TouchableOpacity
-                      style={styles.fileActionBtn}
-                      onPress={() => openFile(file)}
-                      activeOpacity={0.75}
-                    >
-                      <Ionicons name="eye-outline" size={18} color="#1B8B6A" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.fileDownBtn, isDown && { opacity: 0.55 }]}
-                      onPress={() => downloadFile(file)}
-                      disabled={isDown}
-                      activeOpacity={0.8}
-                    >
-                      {isDown
-                        ? <ActivityIndicator size="small" color="#fff" />
-                        : <Ionicons name="download-outline" size={16} color="#fff" />
-                      }
-                    </TouchableOpacity>
-                  </View>
+                  {/* Action — เปิดไฟล์ */}
+                  <TouchableOpacity
+                    style={styles.fileOpenBtn}
+                    onPress={() => handleOpenFile(file)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="open-outline" size={16} color="#fff" />
+                    <Text style={styles.fileOpenBtnText}>เปิด</Text>
+                  </TouchableOpacity>
                 </View>
               );
             })}
@@ -405,15 +398,12 @@ const styles = StyleSheet.create({
   fileInfo:    { flex: 1 },
   fileName:    { fontSize: 13, fontWeight: '600', color: '#111', lineHeight: 18, marginBottom: 2 },
   fileSize:    { fontSize: 11, color: '#bbb' },
-  fileActions: { flexDirection: 'row', gap: 8, flexShrink: 0 },
-  fileActionBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#E6F4F0', justifyContent: 'center', alignItems: 'center',
+  fileOpenBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0,
+    backgroundColor: '#1B8B6A', paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 10,
   },
-  fileDownBtn: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#1B8B6A', justifyContent: 'center', alignItems: 'center',
-  },
+  fileOpenBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   // links
   linkRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
