@@ -12,9 +12,6 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "node": "20.18.0",
-      "env": {
-        "NODE_OPTIONS": "--max-old-space-size=3072"
-      },
       "cache": {
         "disabled": false
       }
@@ -26,9 +23,6 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "node": "20.18.0",
-      "env": {
-        "NODE_OPTIONS": "--max-old-space-size=3072"
-      },
       "cache": {
         "disabled": false
       }
@@ -39,9 +33,6 @@
         "gradleCommand": ":app:assembleRelease"
       },
       "node": "20.18.0",
-      "env": {
-        "NODE_OPTIONS": "--max-old-space-size=3072"
-      },
       "cache": {
         "disabled": false
       }
