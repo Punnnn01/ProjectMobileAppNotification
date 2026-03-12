@@ -29,7 +29,8 @@
       "permissions": [
         "NOTIFICATIONS",
         "POST_NOTIFICATIONS"
-      ]
+      ],
+      "edgeToEdgeLayoutEnabled": true
     },
     "web": {
       "output": "static",

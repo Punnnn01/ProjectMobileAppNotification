@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, SafeAreaView,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -12,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 interface NewsItem { id: string; title: string; content: string; category: string; time: any; }
 
 export default function BookmarkScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, userId, userProfile } = useAuth();
   const [bookmarkedNews, setBookmarkedNews] = useState<NewsItem[]>([]);
@@ -63,7 +65,7 @@ export default function BookmarkScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{
         title: 'ข่าวที่บันทึก',
         headerStyle: { backgroundColor: '#1B8B6A' },
@@ -92,7 +94,7 @@ export default function BookmarkScreen() {
           />
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, TouchableOpacity,
-  StyleSheet, Alert, Linking, SafeAreaView,
+  StyleSheet, Alert, Linking,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
@@ -20,6 +21,7 @@ interface NewsData {
 }
 
 export default function NewsDetailScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user, userId, userProfile } = useAuth();
@@ -132,16 +134,16 @@ export default function NewsDetailScreen() {
   };
 
   if (loading) return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.safe}>
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#1B8B6A" />
         <Text style={styles.loadingText}>กำลังโหลด...</Text>
       </View>
-    </SafeAreaView>
+    </View>
   );
 
   if (!news) return (
-    <SafeAreaView style={styles.safe}>
+    <View style={styles.safe}>
       <View style={styles.centered}>
         <View style={styles.errorIconWrap}>
           <Ionicons name="alert-circle-outline" size={48} color="#999" />
@@ -151,7 +153,7 @@ export default function NewsDetailScreen() {
           <Text style={styles.backPillText}>← กลับ</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 
   const hasFiles = news.files && news.files.length > 0;
@@ -159,7 +161,7 @@ export default function NewsDetailScreen() {
   const isGroupNews = news.group_id && news.group_id !== 'all';
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{
         title: 'รายละเอียดข่าว',
         headerStyle: { backgroundColor: '#1B8B6A' },
@@ -313,7 +315,7 @@ export default function NewsDetailScreen() {
         </View>
 
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

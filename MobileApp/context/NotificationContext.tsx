@@ -1,15 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
 import { db } from '@/config/firebase';
-import { 
-  registerForPushNotificationsAsync, 
+import {
+  registerForPushNotificationsAsync,
   saveTokenToFirestore,
-  removeTokenFromFirestore 
+  removeTokenFromFirestore
 } from '@/services/notificationService';
 
-// ตั้งค่า Notification Handler
+// ตั้งค่า Notification Handler — แสดง alert/sound/badge เมื่อแอปเปิดอยู่
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -29,36 +29,32 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
-  const [notification, setNotification] = useState<Notifications.Notification | null>(null);
-  const { user, userId, userProfile } = useAuth();
+  const [notification, setNotification]   = useState<Notifications.Notification | null>(null);
+  const { user, userId, userProfile }     = useAuth();
   const router = useRouter();
 
-  // ฟังก์ชันลงทะเบียน Push Notification
+  // ป้องกัน register ซ้ำ เมื่อ userProfile เปลี่ยนหลาย render
+  const registeredRef = useRef<string | null>(null);
+
+  // ── ฟังก์ชัน register / unregister ─────────────────────────────────────────
   const registerNotifications = async () => {
     try {
       if (!user || !userId || !userProfile) {
         console.log('❌ Waiting for user data before notification registration');
-        console.log('   user:', !!user, 'userId:', userId, 'userProfile:', !!userProfile);
         return;
       }
 
       console.log('🔔 Starting notification registration...');
       console.log('   User ID:', userId);
       console.log('   Role:', userProfile.role?.role_id);
-      
-      // ขอ permission และรับ token
+
       const token = await registerForPushNotificationsAsync();
-      
+
       if (token) {
         setExpoPushToken(token);
-        
-        // บันทึก token ลง Firestore
         const userType = userProfile.role?.role_id === 'student' ? 'student' : 'teacher';
-        console.log('   User Type:', userType);
-        console.log('   Saving token to Firestore...');
-        
         await saveTokenToFirestore(db, userId, userType, token);
-        
+        registeredRef.current = userId;
         console.log('✅ Notification registration completed successfully!');
       } else {
         console.log('⚠️ Failed to get push token');
@@ -68,76 +64,59 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ฟังก์ชันยกเลิก Push Notification
   const unregisterNotifications = async () => {
     try {
-      if (!user || !userId || !userProfile) {
-        console.log('⚠️ No user data to unregister');
-        return;
-      }
-
+      if (!user || !userId || !userProfile) return;
       const userType = userProfile.role?.role_id === 'student' ? 'student' : 'teacher';
       await removeTokenFromFirestore(db, userId, userType);
-      
       setExpoPushToken(null);
+      registeredRef.current = null;
       console.log('✅ Notification unregistered');
     } catch (error) {
       console.error('❌ Error unregistering notifications:', error);
     }
   };
 
-  // ลงทะเบียนเมื่อ user login และมี userProfile แล้ว
+  // ── ลงทะเบียนเมื่อ login (เฉพาะครั้งแรกต่อ user) ──────────────────────────
   useEffect(() => {
     if (user && userId && userProfile) {
-      console.log('📱 User logged in, registering for notifications...');
-      registerNotifications();
+      // ถ้า userId เปลี่ยน (เปลี่ยน account) ให้ register ใหม่
+      if (registeredRef.current !== userId) {
+        console.log('📱 User logged in, registering for notifications...');
+        registerNotifications();
+      }
     } else {
-      console.log('📱 User logged out or profile not ready, clearing token');
+      if (registeredRef.current) {
+        console.log('📱 User logged out, clearing token');
+        registeredRef.current = null;
+      }
       setExpoPushToken(null);
     }
   }, [user, userId, userProfile]);
 
-  // Listener สำหรับ notification ที่ได้รับ (แอปเปิดอยู่)
+  // ── Listeners: รับ notification + แตะ notification ─────────────────────────
   useEffect(() => {
-    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('📬 Notification received:', notification);
-      console.log('   Title:', notification.request.content.title);
-      console.log('   Body:', notification.request.content.body);
-      console.log('   Data:', notification.request.content.data);
-      
-      setNotification(notification);
+    const notificationListener = Notifications.addNotificationReceivedListener(notif => {
+      console.log('📬 Notification received:', notif.request.content.title);
+      setNotification(notif);
     });
 
-    // Listener สำหรับเมื่อ user แตะ notification
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('👆 Notification Tapped!');
-      const data = response.notification.request.content.data;
-      console.log('   Data:', data);
+      const data = response.notification.request.content.data as any;
 
-      // Navigate ตาม type
-      if (data.type === 'news' && data.news_id) {
-        console.log('   → Navigating to news:', data.news_id);
-        router.push(`/news/${data.news_id}`);
-      } else if (data.type === 'exam') {
-        console.log('   → Navigating to schedule');
-        router.push('/schedule');
-      } else if (data.type === 'message' && data.message_id) {
-        console.log('   → Navigating to chat:', data.message_id);
-        router.push(`/chat/${data.message_id}`);
+      if (data?.type === 'news' && data?.news_id) {
+        router.push(`/news/${data.news_id}` as any);
+      } else if (data?.type === 'exam') {
+        router.push('/schedule' as any);
       } else {
-        console.log('   → Navigating to home');
-        router.push('/(tabs)');
+        router.push('/(tabs)' as any);
       }
     });
 
     return () => {
-      // ลบ listeners (ใช้ .remove() แทน removeNotificationSubscription)
-      if (notificationListener && typeof (notificationListener as any).remove === 'function') {
-        (notificationListener as any).remove();
-      }
-      if (responseListener && typeof (responseListener as any).remove === 'function') {
-        (responseListener as any).remove();
-      }
+      notificationListener.remove();
+      responseListener.remove();
     };
   }, [router]);
 

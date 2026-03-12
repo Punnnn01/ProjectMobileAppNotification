@@ -18,26 +18,17 @@ function RootLayoutNav() {
   useEffect(() => {
     if (loading) return;
 
-    console.log('Navigation check - User:', user?.email, 'Profile:', userProfile?.personal_info?.firstName, 'Segment:', segments[0]);
+    const seg0 = segments[0] as string;
 
-    const inAuthGroup = segments[0] === '(tabs)';
-    const inProtectedRoutes = ['profile', 'schedule', 'bookmark'].includes(segments[0] as string);
+    const inAuthGroup     = seg0 === '(tabs)';
+    const inProtectedRoutes = ['profile', 'schedule', 'bookmark', 'news-list', 'news'].includes(seg0);
 
-    // ถ้าไม่มี user และพยายามเข้าหน้าที่ต้อง login → redirect ไป login
     if (!user && (inAuthGroup || inProtectedRoutes)) {
-      console.log('No user, redirecting to login');
       router.replace('/login');
-    } 
-    // ถ้ามี user และมี profile และอยู่หน้า login/register → redirect ไป home
-    else if (user && userProfile && (segments[0] === 'login' || segments[0] === 'register')) {
-      console.log('User authenticated with profile, redirecting to home');
+    } else if (user && userProfile && (seg0 === 'login' || seg0 === 'register')) {
       router.replace('/(tabs)');
     }
-    // ถ้ามี user แต่ไม่มี profile (กำลัง register) → ไม่ redirect
-    else if (user && !userProfile && (segments[0] === 'login' || segments[0] === 'register')) {
-      console.log('User exists but no profile yet, staying on current page');
-      // ไม่ทำอะไร - อยู่หน้าเดิม
-    }
+    // ถ้ามี user แต่ยังไม่มี profile (กำลัง register) → ไม่ redirect
   }, [user, userProfile, loading, segments]);
 
   if (loading) {
@@ -49,25 +40,53 @@ function RootLayoutNav() {
     );
   }
 
+  const greenHeader = {
+    headerStyle: { backgroundColor: '#1B8B6A' },
+    headerTintColor: '#fff',
+    headerTitleStyle: { fontWeight: '700' as const },
+  };
+
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
-        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="login"    options={{ headerShown: false }} />
         <Stack.Screen name="register" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)"   options={{ headerShown: false }} />
+
         <Stack.Screen name="profile" options={{
           headerShown: true,
           title: 'โปรไฟล์',
-          headerStyle: { backgroundColor: '#1B8B6A' },
-          headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: '700' },
+          ...greenHeader,
         }} />
-        {/* เปลี่ยนเป็น true เพื่อให้แสดง Header */}
-        <Stack.Screen name="schedule" options={{ headerShown: true }} />
-        <Stack.Screen name="bookmark" options={{ headerShown: true }} />
+
+        <Stack.Screen name="schedule" options={{
+          headerShown: true,
+          title: 'ตารางเรียน',
+          ...greenHeader,
+        }} />
+
+        <Stack.Screen name="bookmark" options={{
+          headerShown: true,
+          title: 'ข่าวที่บันทึก',
+          ...greenHeader,
+        }} />
+
+        <Stack.Screen name="news-list" options={{
+          headerShown: true,
+          title: 'ข่าวสารทั้งหมด',
+          ...greenHeader,
+        }} />
+
+        {/* news/[id].tsx — ใช้ชื่อ folder/file ตรงๆ */}
+        <Stack.Screen name="news/[id]" options={{
+          headerShown: true,
+          title: 'รายละเอียดข่าว',
+          ...greenHeader,
+        }} />
+
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="light" translucent={false} />
     </ThemeProvider>
   );
 }

@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert,
-  TextInput, ScrollView, ActivityIndicator, Modal, SafeAreaView,
+  TextInput, ScrollView, ActivityIndicator, Modal,
 } from 'react-native';
 import { router, Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { doc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, userProfile, refreshUserProfile } = useAuth();
   const [isEditing, setIsEditing]               = useState(false);
   const [isSaving, setIsSaving]                 = useState(false);
@@ -73,7 +75,7 @@ export default function ProfileScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{
         headerRight: () => !isEditing ? (
           <TouchableOpacity onPress={() => setIsEditing(true)} style={styles.headerBtn}>
@@ -159,7 +161,7 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

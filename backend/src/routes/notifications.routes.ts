@@ -1,14 +1,16 @@
 import { Request, Response, Router } from 'express';
 import admin from 'firebase-admin';
+import { Expo, ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 
 const router = Router();
+const expo = new Expo();
 
 /**
  * GET /api/notifications/test
  */
 router.get('/test', (req: Request, res: Response) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'Notifications API is working!',
     timestamp: new Date().toISOString()
   });
@@ -16,7 +18,8 @@ router.get('/test', (req: Request, res: Response) => {
 
 /**
  * POST /api/notifications/send
- * ส่ง Push Notification ผ่าน FCM
+ * ส่ง Push Notification ผ่าน Expo Push API
+ * รองรับทั้ง ExponentPushToken และ FCM token
  */
 router.post('/send', async (req: Request, res: Response) => {
   try {
@@ -35,106 +38,123 @@ router.post('/send', async (req: Request, res: Response) => {
     console.log('Title:', title);
     console.log('Body:', body);
     console.log('Target:', targetGroup);
-    console.log('-------------------------------------');
 
     const db = admin.firestore();
     const allTokens: string[] = [];
 
-    // ดึง Students
+    // ดึง tokens จาก Student
     if (targetGroup === 'all' || targetGroup === 'students') {
-      const studentsSnapshot = await db
-        .collection('Student')
+      const snap = await db.collection('Student')
         .where('notificationEnabled', '==', true)
         .get();
-
-      studentsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.pushToken) {
-          allTokens.push(data.pushToken);
-        }
+      snap.forEach(doc => {
+        const t = doc.data().pushToken;
+        if (t) allTokens.push(t);
       });
     }
 
-    // ดึง Teachers
+    // ดึง tokens จาก Teacher
     if (targetGroup === 'all' || targetGroup === 'teachers') {
-      const teachersSnapshot = await db
-        .collection('Teacher')
+      const snap = await db.collection('Teacher')
         .where('notificationEnabled', '==', true)
         .get();
-
-      teachersSnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.pushToken) {
-          allTokens.push(data.pushToken);
-        }
+      snap.forEach(doc => {
+        const t = doc.data().pushToken;
+        if (t) allTokens.push(t);
       });
     }
 
-    // ลบ Token ซ้ำออก
     const tokens = [...new Set(allTokens)];
+    console.log(`📊 Unique tokens: ${tokens.length}`);
 
-    console.log(`📊 Found ${allTokens.length} total tokens, ${tokens.length} unique tokens`);
-    
-    if (allTokens.length !== tokens.length) {
-      console.log(`⚠️ WARNING: Found ${allTokens.length - tokens.length} duplicate tokens!`);
+    if (tokens.length === 0) {
+      return res.json({
+        success: true,
+        sentCount: 0,
+        failedCount: 0,
+        totalTokens: 0,
+        message: 'ไม่มีอุปกรณ์ที่เปิดรับการแจ้งเตือน'
+      });
     }
 
-    let sentCount = 0;
+    // แยก Expo tokens และ FCM tokens
+    const expoTokens = tokens.filter(t => Expo.isExpoPushToken(t));
+    const fcmTokens  = tokens.filter(t => !Expo.isExpoPushToken(t));
+
+    console.log(`   Expo tokens: ${expoTokens.length}`);
+    console.log(`   FCM tokens:  ${fcmTokens.length}`);
+
+    let sentCount   = 0;
     let failedCount = 0;
     const errors: string[] = [];
 
-    // ส่งผ่าน FCM
-    if (tokens.length > 0) {
-      console.log('🚀 Sending via FCM...');
-      
-      for (const token of tokens) {
+    // ─── ส่งผ่าน Expo Push API ─────────────────────────────────────────────
+    if (expoTokens.length > 0) {
+      const messages: ExpoPushMessage[] = expoTokens.map(token => ({
+        to: token,
+        sound: 'default' as const,
+        title,
+        body,
+        data: {
+          type: newsId ? 'news' : 'general',
+          news_id: newsId || '',
+        },
+        priority: 'high' as const,
+        channelId: 'default',
+      }));
+
+      // Expo batches ไม่เกิน 100 ต่อ request
+      const chunks = expo.chunkPushNotifications(messages);
+      for (const chunk of chunks) {
+        try {
+          const tickets: ExpoPushTicket[] = await expo.sendPushNotificationsAsync(chunk);
+          tickets.forEach((ticket, i) => {
+            if (ticket.status === 'ok') {
+              sentCount++;
+            } else {
+              failedCount++;
+              errors.push(`Expo: ${(ticket as any).message || 'unknown error'} (${expoTokens[i]?.substring(0, 30)})`);
+            }
+          });
+        } catch (err: any) {
+          failedCount += chunk.length;
+          errors.push(`Expo chunk error: ${err.message}`);
+        }
+      }
+    }
+
+    // ─── ส่งผ่าน FCM (legacy tokens ที่ยังเหลืออยู่) ─────────────────────
+    if (fcmTokens.length > 0) {
+      for (const token of fcmTokens) {
         try {
           await admin.messaging().send({
-            token: token,
-            notification: {
-              title: title,
-              body: body,
-            },
+            token,
+            notification: { title, body },
             data: {
               type: newsId ? 'news' : 'general',
               news_id: newsId || '',
             },
             android: {
               priority: 'high',
-              notification: {
-                sound: 'default',
-                channelId: 'default',
-              },
+              notification: { sound: 'default', channelId: 'default' },
             },
           });
-          
           sentCount++;
-          console.log(`   ✅ Sent to ${token.substring(0, 20)}...`);
-        } catch (error: any) {
+        } catch (err: any) {
           failedCount++;
-          errors.push(error.message);
-          console.error(`   ❌ Failed for ${token.substring(0, 20)}:`, error.message);
+          errors.push(`FCM: ${err.message}`);
         }
       }
     }
 
-    console.log(`\n=====================================`);
-    console.log(`✅ NOTIFICATION RESULTS:`);
-    console.log(`   Sent: ${sentCount}`);
-    console.log(`   Failed: ${failedCount}`);
-    console.log(`   Total tokens: ${tokens.length}`);
-    if (errors.length > 0) {
-      console.log(`\n❌ Errors (first 5):`);
-      errors.slice(0, 5).forEach((err, i) => {
-        console.log(`   ${i + 1}. ${err}`);
-      });
-    }
-    console.log(`=====================================\n`);
+    console.log(`✅ Sent: ${sentCount} | Failed: ${failedCount}`);
+    if (errors.length) console.log('Errors (first 5):', errors.slice(0, 5));
+    console.log('=====================================\n');
 
     res.json({
       success: true,
-      sentCount: sentCount,
-      failedCount: failedCount,
+      sentCount,
+      failedCount,
       totalTokens: tokens.length,
       message: `Sent to ${sentCount} devices`,
       errors: errors.length > 0 ? errors.slice(0, 5) : undefined
@@ -142,10 +162,7 @@ router.post('/send', async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ Error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

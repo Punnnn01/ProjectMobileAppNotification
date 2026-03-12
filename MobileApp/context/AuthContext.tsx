@@ -1,20 +1,20 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { 
+import {
   User,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  collection, 
-  query, 
-  where, 
-  getDocs 
+import {
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs
 } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
 
@@ -44,9 +44,9 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (
-    email: string, 
-    password: string, 
-    firstName: string, 
+    email: string,
+    password: string,
+    firstName: string,
     lastName: string,
     role: 'student' | 'teacher',
     studentId: string
@@ -60,18 +60,21 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 ชั่วโมง
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [user, setUser]               = useState<User | null>(null);
+  const [userId, setUserId]           = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const backgroundTime = useRef<number | null>(null);
+  const [loading, setLoading]         = useState(true);
 
-  // ── Inactivity timeout (1 ชั่วโมง) ────────────────────────────────────────────
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundTime  = useRef<number | null>(null);
+  // เก็บ authUID ล่าสุดที่กำลัง fetch ไว้ป้องกัน race condition
+  const currentAuthUID  = useRef<string | null>(null);
+
+  // ── Inactivity timeout ──────────────────────────────────────────────────────
   const resetInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) clearTimeout(inactivityTimer.current);
     inactivityTimer.current = setTimeout(async () => {
-      console.log('⏰ Session timeout เพราะไม่มีการใช้งาน 1 ชั่วโมง');
+      console.log('⏰ Session timeout — 1 ชั่วโมงไม่มีการใช้งาน');
       await signOut(auth);
     }, INACTIVITY_TIMEOUT_MS);
   }, []);
@@ -83,130 +86,120 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // ติดตาม AppState: ถ้าแอปไป background > 1 ชั่วโมง → logout ทันทีเมื่อกลับมา
+  // ติดตาม AppState background > 1 ชั่วโมง
   useEffect(() => {
     const handleAppStateChange = async (nextState: AppStateStatus) => {
       if (nextState === 'background' || nextState === 'inactive') {
-        // บันทึกเวลาที่แอปไป background
         backgroundTime.current = Date.now();
-      } else if (nextState === 'active') {
-        if (backgroundTime.current) {
-          const elapsed = Date.now() - backgroundTime.current;
-          if (elapsed >= INACTIVITY_TIMEOUT_MS) {
-            // อยู่ background นานเกิน 1 ชั่วโมง → logout
-            console.log('⏰ Background timeout → logout');
-            await signOut(auth);
-          } else {
-            // ยังไม่หมด → reset timer ให้นับใหม่
-            resetInactivityTimer();
-          }
-          backgroundTime.current = null;
+      } else if (nextState === 'active' && backgroundTime.current) {
+        const elapsed = Date.now() - backgroundTime.current;
+        backgroundTime.current = null;
+        if (elapsed >= INACTIVITY_TIMEOUT_MS) {
+          console.log('⏰ Background timeout → logout');
+          await signOut(auth);
+        } else {
+          resetInactivityTimer();
         }
       }
     };
-
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => sub.remove();
   }, [resetInactivityTimer]);
 
-  // ── Firebase Auth State ───────────────────────────────────────────────────
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('Auth state changed:', user?.email);
-      setUser(user);
-      
-      if (user) {
-        await fetchUserProfileByAuthUID(user.uid);
-        resetInactivityTimer(); // เริ่มนับ timeout เมื่อ login
-      } else {
-        setUserProfile(null);
-        setUserId(null);
-        clearInactivityTimer(); // ยกเลิก timer เมื่อ logout
-      }
-      
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  const fetchUserProfileByAuthUID = async (authUID: string) => {
+  // ── Fetch user profile from Firestore ──────────────────────────────────────
+  const fetchUserProfileByAuthUID = useCallback(async (authUID: string) => {
+    currentAuthUID.current = authUID;
     try {
       console.log('Fetching profile for auth UID:', authUID);
-      
-      // ค้นหาใน Student collection
-      const studentQuery = query(
-        collection(db, 'Student'),
-        where('auth_uid', '==', authUID)
+
+      // Student
+      const studentSnap = await getDocs(
+        query(collection(db, 'Student'), where('auth_uid', '==', authUID))
       );
-      const studentSnapshot = await getDocs(studentQuery);
-      
-      if (!studentSnapshot.empty) {
-        console.log('Found in Student collection');
-        const docSnap = studentSnapshot.docs[0];
+      if (!studentSnap.empty && currentAuthUID.current === authUID) {
+        const docSnap    = studentSnap.docs[0];
         const profileData = docSnap.data() as UserProfile;
-        const studentId = (profileData as any).student_id || docSnap.id;
-        console.log('Profile data:', profileData.personal_info);
-        console.log('✅ Setting userId to:', studentId);
-        setUserId(studentId);
-        setUserProfile(profileData);
-        return;
-      }
-      
-      // ค้นหาใน Teacher collection
-      const teacherQuery = query(
-        collection(db, 'Teacher'),
-        where('auth_uid', '==', authUID)
-      );
-      const teacherSnapshot = await getDocs(teacherQuery);
-      
-      if (!teacherSnapshot.empty) {
-        console.log('Found in Teacher collection');
-        const docSnap = teacherSnapshot.docs[0];
-        const profileData = docSnap.data() as UserProfile;
-        const teacherId = (profileData as any).teacher_id || docSnap.id;
-        console.log('Profile data:', profileData.personal_info);
-        console.log('✅ Setting userId to:', teacherId);
-        setUserId(teacherId);
+        const sid         = (profileData as any).student_id || docSnap.id;
+        console.log('Found in Student. userId:', sid);
+        setUserId(sid);
         setUserProfile(profileData);
         return;
       }
 
-      // ค้นหาใน Admin collection
-      const adminQuery = query(
-        collection(db, 'Admin'),
-        where('auth_uid', '==', authUID)
+      // Teacher
+      const teacherSnap = await getDocs(
+        query(collection(db, 'Teacher'), where('auth_uid', '==', authUID))
       );
-      const adminSnapshot = await getDocs(adminQuery);
-      
-      if (!adminSnapshot.empty) {
-        console.log('Found in Admin collection');
-        const docSnap = adminSnapshot.docs[0];
+      if (!teacherSnap.empty && currentAuthUID.current === authUID) {
+        const docSnap    = teacherSnap.docs[0];
         const profileData = docSnap.data() as UserProfile;
-        console.log('Profile data:', profileData.personal_info);
+        const tid         = (profileData as any).teacher_id || docSnap.id;
+        console.log('Found in Teacher. userId:', tid);
+        setUserId(tid);
+        setUserProfile(profileData);
+        return;
+      }
+
+      // Admin
+      const adminSnap = await getDocs(
+        query(collection(db, 'Admin'), where('auth_uid', '==', authUID))
+      );
+      if (!adminSnap.empty && currentAuthUID.current === authUID) {
+        const docSnap    = adminSnap.docs[0];
+        const profileData = docSnap.data() as UserProfile;
+        console.log('Found in Admin. userId:', docSnap.id);
         setUserId(docSnap.id);
         setUserProfile(profileData);
-      } else {
+        return;
+      }
+
+      // ไม่พบใน collection ไหนเลย
+      if (currentAuthUID.current === authUID) {
         console.log('Profile not found in any collection');
         setUserId(null);
         setUserProfile(null);
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
-      setUserProfile(null);
-      setUserId(null);
+      if (currentAuthUID.current === authUID) {
+        setUserId(null);
+        setUserProfile(null);
+      }
     }
-  };
+  }, []);
 
+  // ── Firebase Auth state listener ───────────────────────────────────────────
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log('Auth state changed:', firebaseUser?.email ?? 'null');
+      setUser(firebaseUser);
+
+      if (firebaseUser) {
+        await fetchUserProfileByAuthUID(firebaseUser.uid);
+        resetInactivityTimer();
+      } else {
+        currentAuthUID.current = null;
+        setUserProfile(null);
+        setUserId(null);
+        clearInactivityTimer();
+      }
+
+      setLoading(false);
+    });
+    return unsubscribe;
+  }, [fetchUserProfileByAuthUID, resetInactivityTimer, clearInactivityTimer]);
+
+  // ── login ──────────────────────────────────────────────────────────────────
   const login = useCallback(async (email: string, password: string) => {
     console.log('Attempting login for:', email);
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const uid = userCredential.user.uid;
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    const uid  = cred.user.uid;
     console.log('Login successful:', uid);
 
-    // เช็คว่าเป็นอาจารย์ที่ยังไม่ได้รับการยืนยันไหม
-    const { getDocs, query, collection, where } = await import('firebase/firestore');
-    const teacherQ = query(collection(db, 'Teacher'), where('auth_uid', '==', uid));
-    const teacherSnap = await getDocs(teacherQ);
+    // เช็คสถานะ teacher pending/rejected
+    const teacherSnap = await getDocs(
+      query(collection(db, 'Teacher'), where('auth_uid', '==', uid))
+    );
     if (!teacherSnap.empty) {
       const data = teacherSnap.docs[0].data();
       if (data.is_rejected === true) {
@@ -220,110 +213,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── register ───────────────────────────────────────────────────────────────
   const register = useCallback(async (
-    email: string, 
-    password: string, 
-    firstName: string, 
+    email: string,
+    password: string,
+    firstName: string,
     lastName: string,
     role: 'student' | 'teacher',
     studentId: string
   ) => {
     console.log('=== Starting Registration ===');
-    console.log('Email:', email);
-    console.log('Role:', role);
-    console.log('Name:', firstName, lastName);
-    console.log('Student/Teacher ID:', studentId);
+    const collectionName = role === 'student' ? 'Student' : 'Teacher';
 
-    try {
-      const collectionName = role === 'student' ? 'Student' : 'Teacher';
-      const existingDoc = await getDoc(doc(db, collectionName, studentId));
-      
-      if (existingDoc.exists()) {
-        throw new Error('รหัสนี้ถูกใช้งานแล้ว กรุณาใช้รหัสอื่น');
-      }
+    // เช็ค ID ซ้ำ
+    const existingDoc = await getDoc(doc(db, collectionName, studentId));
+    if (existingDoc.exists()) throw new Error('รหัสนี้ถูกใช้งานแล้ว กรุณาใช้รหัสอื่น');
 
-      console.log('Step 1: Creating auth user...');
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
-      console.log('✓ Auth user created with UID:', uid);
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const uid = userCredential.user.uid;
+    console.log('✓ Auth user created with UID:', uid);
 
-      console.log('Step 2: Saving to Firestore collection:', collectionName, 'with ID:', studentId);
-      
-      const personalInfo = {
-        firstName,
-        lastName,
-        email,
-        phone: ''
-      };
+    const personalInfo = { firstName, lastName, email, phone: '' };
+    const roleInfo     = { role_id: role, roleName: role === 'student' ? 'Student' : 'Teacher' };
 
-      const roleInfo = {
-        role_id: role,
-        roleName: role === 'student' ? 'Student' : 'Teacher'
-      };
-
-      if (role === 'student') {
-        await setDoc(doc(db, 'Student', studentId), {
-          student_id: studentId,
-          auth_uid: uid,
-          personal_info: personalInfo,
-          role: roleInfo,
-          subject: [],
-          notification: [],
-          adviser_id: '',
-          chat_history: [],
-          bookmarks: []
-        });
-      } else {
-        await setDoc(doc(db, 'Teacher', studentId), {
-          teacher_id: studentId,
-          auth_uid: uid,
-          personal_info: personalInfo,
-          role: roleInfo,
-          subject: [],
-          notification: [],
-          chat_history: [],
-          bookmarks: [],
-          is_verified: false,   // รอแอดมินยืนยัน
-          is_rejected: false,
-        });
-      }
-      
-      console.log('✓ User data saved to Firestore with custom ID');
-      console.log('=== Registration Complete ===');
-    } catch (error: any) {
-      console.error('❌ Registration Error:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
-      throw error;
+    if (role === 'student') {
+      await setDoc(doc(db, 'Student', studentId), {
+        student_id: studentId,
+        auth_uid: uid,
+        personal_info: personalInfo,
+        role: roleInfo,
+        subject: [],
+        notification: [],
+        adviser_id: '',
+        chat_history: [],
+        bookmarks: [],
+      });
+    } else {
+      await setDoc(doc(db, 'Teacher', studentId), {
+        teacher_id: studentId,
+        auth_uid: uid,
+        personal_info: personalInfo,
+        role: roleInfo,
+        subject: [],
+        notification: [],
+        chat_history: [],
+        bookmarks: [],
+        is_verified: false,
+        is_rejected: false,
+      });
     }
+    console.log('=== Registration Complete ===');
   }, []);
 
+  // ── logout ─────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     console.log('Logging out...');
+    // clear state ก่อน signOut เพื่อให้ UI ไม่ค้าง
+    currentAuthUID.current = null;
     setUser(null);
     setUserId(null);
     setUserProfile(null);
+    clearInactivityTimer();
     await signOut(auth);
-    console.log('✓ Logged out, user and profile cleared');
-  }, []);
+    console.log('✓ Logged out');
+  }, [clearInactivityTimer]);
 
+  // ── refreshUserProfile ─────────────────────────────────────────────────────
   const refreshUserProfile = useCallback(async () => {
     if (user) {
       console.log('Refreshing user profile...');
       await fetchUserProfileByAuthUID(user.uid);
       console.log('✓ User profile refreshed');
     }
-  }, [user]);
+  }, [user, fetchUserProfileByAuthUID]);
 
   const value = useMemo(() => ({
-    user,
-    userId,
-    userProfile,
-    loading,
-    login,
-    register,
-    logout,
-    refreshUserProfile
+    user, userId, userProfile, loading,
+    login, register, logout, refreshUserProfile
   }), [user, userId, userProfile, loading, login, register, logout, refreshUserProfile]);
 
   return (
@@ -335,8 +301,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }

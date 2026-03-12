@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db, admin } from '../lib/firebase';
 import { uploadToCloudinary, deleteFromCloudinary } from '../lib/cloudinary';
 import multer from 'multer';
+import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
 const router = Router();
 
@@ -136,18 +137,38 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
       }
     }
 
-    // 5. ส่ง Push Notifications
+    // 5. ส่ง Push Notifications (รองรับทั้ง Expo และ FCM token)
+    const expo = new Expo();
     const tokens = [...new Set(allTokens)];
+    const notifTitle  = title || 'ข่าวใหม่';
+    const notifBody   = content && content.length > 80 ? content.substring(0, 80) + '...' : content || 'มีข่าวสารใหม่';
+    const notifData   = { type: 'news', news_id: newsRef.id };
+
+    const expoTokens = tokens.filter(t => Expo.isExpoPushToken(t));
+    const fcmTokens  = tokens.filter(t => !Expo.isExpoPushToken(t));
     let successCount = 0, errorCount = 0;
-    for (const token of tokens) {
+
+    // ส่งผ่าน Expo Push API
+    if (expoTokens.length > 0) {
+      const messages: ExpoPushMessage[] = expoTokens.map(token => ({
+        to: token, sound: 'default' as const, title: notifTitle, body: notifBody,
+        data: notifData, priority: 'high' as const, channelId: 'default',
+      }));
+      const chunks = expo.chunkPushNotifications(messages);
+      for (const chunk of chunks) {
+        try {
+          const tickets = await expo.sendPushNotificationsAsync(chunk);
+          tickets.forEach(t => { if (t.status === 'ok') successCount++; else errorCount++; });
+        } catch { errorCount += chunk.length; }
+      }
+    }
+
+    // ส่งผ่าน FCM (legacy tokens)
+    for (const token of fcmTokens) {
       try {
         await admin.messaging().send({
-          notification: {
-            title: title || 'ข่าวใหม่',
-            body: content && content.length > 80 ? content.substring(0, 80) + '...' : content || 'มีข่าวสารใหม่',
-          },
-          data: { type: 'news', news_id: newsRef.id },
-          token,
+          notification: { title: notifTitle, body: notifBody },
+          data: notifData, token,
           android: { priority: 'high' as const, notification: { sound: 'default', channelId: 'default' } },
         });
         successCount++;

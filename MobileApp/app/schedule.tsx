@@ -4,11 +4,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Alert,
+  Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
-  SafeAreaView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,29 +20,12 @@ import {
   View,
 } from "react-native";
 
-const DAYS = [
-  "จันทร์",
-  "อังคาร",
-  "พุธ",
-  "พฤหัสบดี",
-  "ศุกร์",
-  "เสาร์",
-  "อาทิตย์",
-];
-const HOURS = Array.from({ length: 13 }, (_, i) => 8 + i);
-const CELL_W = 100;
-const DAY_W = 72;
-const CELL_H = 64;
-const COLORS = [
-  "#3B82F6",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#EC4899",
-  "#06B6D4",
-  "#84CC16",
-];
+// ─── Constants ────────────────────────────────────────────────────────────────
+const DAYS_SHORT = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"];
+const HOURS      = Array.from({ length: 15 }, (_, i) => 7 + i); // 07–21
+const COLORS     = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"];
+const ROW_H      = 64; // px ต่อ 1 ชั่วโมง
+const { width: SCREEN_W } = Dimensions.get("window");
 
 const TIME_OPTIONS: string[] = [];
 for (let h = 7; h <= 21; h++) {
@@ -50,6 +36,12 @@ for (let h = 7; h <= 21; h++) {
 const timeToDecimal = (t: string) => {
   const [h, m] = t.split(":").map(Number);
   return h + m / 60;
+};
+
+const decimalToTime = (d: number) => {
+  const h = Math.floor(d);
+  const m = Math.round((d - h) * 60);
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 };
 
 interface ScheduleItem {
@@ -65,57 +57,59 @@ interface ScheduleItem {
   color?: string;
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function ScheduleScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, userId, userProfile } = useAuth();
 
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([]);
-  // useRef เพื่อให้ฟังก์ชัน async / callback อ่านค่าล่าสุดเสมอ
   const itemsRef = useRef<ScheduleItem[]>([]);
 
+  // วันที่กำลังดูอยู่ (0=จ … 6=อา)
+  const [activeDay, setActiveDay] = useState<number>(() => {
+    const d = new Date().getDay(); // 0=อา,1=จ,...,6=ส
+    return d === 0 ? 6 : d - 1;   // แปลงเป็น index ของเรา
+  });
+
+  // Add modal
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
-  const [subjectCode, setSubjectCode] = useState("");
-  const [subjectName, setSubjectName] = useState("");
-  const [room, setRoom] = useState("");
-  const [startTime, setStartTime] = useState("08:00");
-  const [endTime, setEndTime] = useState("09:00");
-  const [colorIndex, setColorIndex] = useState(0);
+  const [selectedHour, setSelectedHour]       = useState(8);
+  const [subjectCode, setSubjectCode]         = useState("");
+  const [subjectName, setSubjectName]         = useState("");
+  const [room, setRoom]                       = useState("");
+  const [startTime, setStartTime]             = useState("08:00");
+  const [endTime, setEndTime]                 = useState("09:00");
+  const [colorIndex, setColorIndex]           = useState(0);
 
+  // Detail modal
   const [detailVisible, setDetailVisible] = useState(false);
-  const [detailItem, setDetailItem] = useState<ScheduleItem | null>(null);
+  const [detailItem, setDetailItem]       = useState<ScheduleItem | null>(null);
 
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerTarget, setPickerTarget] = useState<"start" | "end">("start");
+  // Time picker
+  const [pickerVisible, setPickerVisible]   = useState(false);
+  const [pickerTarget, setPickerTarget]     = useState<"start" | "end">("start");
   const [pickerSelected, setPickerSelected] = useState("08:00");
 
-  useEffect(() => {
-    if (user && userId) loadSchedule();
-  }, [user, userId]);
+  // ─── Firestore ─────────────────────────────────────────────────────────
+  useEffect(() => { if (user && userId) loadSchedule(); }, [user, userId]);
 
-  // ── sync ref กับ state ─────────────────────────────
   const updateItems = (items: ScheduleItem[]) => {
     itemsRef.current = items;
     setScheduleItems(items);
   };
 
-  // ── Firestore ──────────────────────────────────────
   const loadSchedule = async () => {
     if (!user || !userId) return;
     try {
-      const col =
-        userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+      const col  = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
       const snap = await getDoc(doc(db, col, userId));
       if (snap.exists()) {
         const raw: any[] = snap.data()?.schedule || [];
-        const migrated = raw.map((item) => ({
+        const migrated   = raw.map((item) => ({
           ...item,
-          startTime:
-            item.startTime ||
-            `${Math.floor(item.startHour).toString().padStart(2, "0")}:${item.startHour % 1 === 0.5 ? "30" : "00"}`,
-          endTime:
-            item.endTime ||
-            `${Math.floor(item.endHour).toString().padStart(2, "0")}:${item.endHour % 1 === 0.5 ? "30" : "00"}`,
+          startTime: item.startTime || decimalToTime(item.startHour),
+          endTime:   item.endTime   || decimalToTime(item.endHour),
         }));
         updateItems(migrated);
       }
@@ -123,28 +117,21 @@ export default function ScheduleScreen() {
   };
 
   const saveSchedule = async (items: ScheduleItem[]) => {
-    if (!user || !userId) {
-      console.log("saveSchedule: no user/userId", { user, userId });
-      return;
-    }
+    if (!user || !userId) return;
     try {
-      console.log("saveSchedule: saving", items.length, "items");
-      const col =
-        userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+      const col = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
       await setDoc(doc(db, col, userId), { schedule: items }, { merge: true });
-      console.log("saveSchedule: success");
       updateItems(items);
-    } catch (e) {
-      console.log("saveSchedule: error", e);
+    } catch {
       Alert.alert("ข้อผิดพลาด", "ไม่สามารถบันทึกตารางได้");
     }
   };
 
-  // ── Add ────────────────────────────────────────────
-  const openAddModal = (day: number, hour: number) => {
-    setSelectedDay(day);
+  // ─── Handlers ──────────────────────────────────────────────────────────
+  const openAddModal = (hour: number) => {
+    setSelectedHour(hour);
     setStartTime(`${hour.toString().padStart(2, "0")}:00`);
-    setEndTime(`${(hour + 1).toString().padStart(2, "0")}:00`);
+    setEndTime(`${(Math.min(hour + 1, 20)).toString().padStart(2, "0")}:00`);
     setSubjectCode("");
     setSubjectName("");
     setRoom("");
@@ -153,7 +140,7 @@ export default function ScheduleScreen() {
   };
 
   const handleAddSubject = () => {
-    if (selectedDay === null || !subjectCode.trim() || !subjectName.trim()) {
+    if (!subjectCode.trim() || !subjectName.trim()) {
       Alert.alert("กรุณากรอกข้อมูล", "กรุณากรอกรหัสวิชาและชื่อวิชา");
       return;
     }
@@ -163,63 +150,37 @@ export default function ScheduleScreen() {
       Alert.alert("เวลาไม่ถูกต้อง", "เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น");
       return;
     }
-
     const newItem: ScheduleItem = {
       id: Date.now().toString(),
-      day: selectedDay,
-      startHour: sH,
-      endHour: eH,
-      startTime,
-      endTime,
+      day: activeDay,
+      startHour: sH, endHour: eH,
+      startTime, endTime,
       subjectCode: subjectCode.trim(),
       subjectName: subjectName.trim(),
       room: room.trim(),
       color: COLORS[colorIndex],
     };
-
-    const current = itemsRef.current;
-    const conflict = current.some(
+    const conflict = itemsRef.current.some(
       (item) =>
-        item.day === newItem.day &&
-        !(
-          newItem.endHour <= item.startHour || newItem.startHour >= item.endHour
-        ),
+        item.day === activeDay &&
+        !(newItem.endHour <= item.startHour || newItem.startHour >= item.endHour)
     );
     if (conflict) {
       Alert.alert("ตารางซ้อนทับ", "มีวิชาอื่นในช่วงเวลานี้แล้ว");
       return;
     }
-
-    saveSchedule([...current, newItem]);
+    saveSchedule([...itemsRef.current, newItem]);
     setAddModalVisible(false);
-  };
-
-  // ── Delete ─────────────────────────────────────────
-  const openDetail = (item: ScheduleItem) => {
-    setDetailItem(item);
-    setDetailVisible(true);
   };
 
   const handleDelete = () => {
     if (!detailItem) return;
     const id = detailItem.id;
-    const name = detailItem.subjectName;
-    console.log(
-      "handleDelete: deleting id =",
-      id,
-      "current items =",
-      itemsRef.current.length,
-    );
-
     setDetailVisible(false);
     setDetailItem(null);
-
-    const filtered = itemsRef.current.filter((i) => i.id !== id);
-    console.log("handleDelete: after filter =", filtered.length, "items");
-    saveSchedule(filtered);
+    saveSchedule(itemsRef.current.filter((i) => i.id !== id));
   };
 
-  // ── Time picker ────────────────────────────────────
   const openPicker = (target: "start" | "end") => {
     setPickerTarget(target);
     setPickerSelected(target === "start" ? startTime : endTime);
@@ -242,97 +203,152 @@ export default function ScheduleScreen() {
   const durationLabel = () => {
     const diff = timeToDecimal(endTime) - timeToDecimal(startTime);
     if (diff <= 0) return "—";
-    const h = Math.floor(diff),
-      m = Math.round((diff - h) * 60);
-    return m > 0 ? `${h}ชม.${m}น.` : `${h} ชม.`;
+    const h = Math.floor(diff);
+    const m = Math.round((diff - h) * 60);
+    return m > 0 ? `${h} ชม. ${m} น.` : `${h} ชั่วโมง`;
   };
 
-  // ── Grid row ───────────────────────────────────────
-  const DayRow = ({
-    dayLabel,
-    dayIndex,
-  }: {
-    dayLabel: string;
-    dayIndex: number;
-  }) => {
-    const dayItems = scheduleItems.filter((i) => i.day === dayIndex);
+  // วิชาของวันที่กำลังดูอยู่ เรียงตามเวลา
+  const todayItems = scheduleItems
+    .filter((s) => s.day === activeDay)
+    .sort((a, b) => a.startHour - b.startHour);
+
+  // ─── Sub-components ────────────────────────────────────────────────────
+
+  // แถบ day tabs ด้านบน
+  const DayTabs = () => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.dayTabsContent}
+      style={styles.dayTabsWrap}
+    >
+      {DAYS_SHORT.map((d, i) => {
+        const hasClass = scheduleItems.some((s) => s.day === i);
+        const isActive = i === activeDay;
+        return (
+          <TouchableOpacity
+            key={i}
+            style={[styles.dayTab, isActive && styles.dayTabActive]}
+            onPress={() => setActiveDay(i)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.dayTabText, isActive && styles.dayTabTextActive]}>
+              {d}
+            </Text>
+            {hasClass && <View style={[styles.dayDot, isActive && styles.dayDotActive]} />}
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
+
+  // Timeline grid — position-absolute overlay สำหรับ block วิชา
+  const TimelineGrid = () => {
+    const TIME_COL  = 52;
+    const CONTENT_W = SCREEN_W - 32 - TIME_COL;
+    const TOTAL_H   = HOURS.length * ROW_H; // ความสูงรวมทั้ง grid
+    const START_H   = HOURS[0]; // ชั่วโมงแรกที่แสดง (7)
 
     return (
-      <View style={styles.gridRow}>
-        <View style={styles.dayLabelCell}>
-          <Text style={styles.dayLabel}>{dayLabel}</Text>
+      <View style={styles.gridCard}>
+        {/* แถวชั่วโมง — แค่ทำเส้นกริดและปุ่ม + */}
+        <View style={{ flexDirection: "row", overflow: "hidden", borderRadius: 16 }}>
+          {/* Time column */}
+          <View style={{ width: TIME_COL }}>
+            {HOURS.map((hour) => (
+              <View key={hour} style={[styles.timeCol, { width: TIME_COL, height: ROW_H }]}>
+                <Text style={styles.timeText}>{hour}:00</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Content column — position relative เพื่อให้ absolute block วางทับได้ */}
+          <View style={{ width: CONTENT_W, height: TOTAL_H, position: "relative" }}>
+            {/* เส้นกริดแนวนอน + ปุ่ม + */}
+            {HOURS.map((hour) => {
+              const isCovered = todayItems.some(
+                (s) => s.startHour < hour && s.endHour > hour
+              );
+              const hasItem = todayItems.some(
+                (s) => Math.floor(s.startHour) === hour
+              );
+              return (
+                <View
+                  key={hour}
+                  style={{
+                    position: "absolute",
+                    top: (hour - START_H) * ROW_H,
+                    left: 0,
+                    width: CONTENT_W,
+                    height: ROW_H,
+                    borderTopWidth: 1,
+                    borderTopColor: "#F0F0F0",
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                >
+                  {(!isCovered && !hasItem) && (
+                    <TouchableOpacity
+                      style={styles.emptySlot}
+                      onPress={() => openAddModal(hour)}
+                      activeOpacity={0.4}
+                    >
+                      <Ionicons name="add" size={16} color="#D1D5DB" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+
+            {/* Subject blocks — absolute ตาม startHour/endHour จริง */}
+            {todayItems.map((item) => {
+              const topPx    = (item.startHour - START_H) * ROW_H + 3;
+              const heightPx = Math.max((item.endHour - item.startHour) * ROW_H - 6, 36);
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  activeOpacity={0.85}
+                  onPress={() => { setDetailItem(item); setDetailVisible(true); }}
+                  style={[
+                    styles.subjectBlock,
+                    {
+                      position: "absolute",
+                      top: topPx,
+                      left: 4,
+                      right: 4,
+                      height: heightPx,
+                      backgroundColor: item.color || "#1B8B6A",
+                    },
+                  ]}
+                >
+                  <View style={styles.blockInner}>
+                    <Text style={styles.blockCode} numberOfLines={1}>{item.subjectCode}</Text>
+                    <Text style={styles.blockName} numberOfLines={2}>{item.subjectName}</Text>
+                    <View style={styles.blockMeta}>
+                      <Ionicons name="time-outline" size={11} color="rgba(255,255,255,0.85)" />
+                      <Text style={styles.blockTime}>{item.startTime} – {item.endTime}</Text>
+                      {item.room ? (
+                        <>
+                          <Text style={styles.blockTimeDot}>·</Text>
+                          <Ionicons name="location-outline" size={11} color="rgba(255,255,255,0.85)" />
+                          <Text style={styles.blockTime} numberOfLines={1}>{item.room}</Text>
+                        </>
+                      ) : null}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
-        {HOURS.map((h) => {
-          // หาวิชาที่เริ่มในช่องนี้พอดี
-          const itemStartingHere = dayItems.find(
-            (i) => Math.floor(i.startHour) === h,
-          );
-          // หาวิชาที่ครอบช่องนี้อยู่ (แต่เริ่มก่อนหน้า)
-          const itemCovering = dayItems.find(
-            (i) => h > Math.floor(i.startHour) && h < Math.ceil(i.endHour),
-          );
-
-          if (itemCovering) {
-            // ช่องที่ถูกวิชาครอบอยู่ — render เป็น View ว่างๆ ไม่กดได้
-            return <View key={h} style={styles.cell} />;
-          }
-
-          if (itemStartingHere) {
-            // ช่องที่วิชาเริ่ม — render subject block ที่มีความกว้างตามจำนวนชั่วโมง
-            const widthPx =
-              (itemStartingHere.endHour - itemStartingHere.startHour) * CELL_W -
-              3;
-            return (
-              <TouchableOpacity
-                key={h}
-                activeOpacity={0.8}
-                onPress={() => openDetail(itemStartingHere)}
-                style={[
-                  styles.cell,
-                  styles.subjectCell,
-                  {
-                    width: widthPx,
-                    backgroundColor: itemStartingHere.color || "#1B8B6A",
-                  },
-                ]}
-              >
-                <Text style={styles.subjectCode} numberOfLines={1}>
-                  {itemStartingHere.subjectCode}
-                </Text>
-                <Text style={styles.subjectName} numberOfLines={1}>
-                  {itemStartingHere.subjectName}
-                </Text>
-                <Text style={styles.subjectTime}>
-                  {itemStartingHere.startTime}–{itemStartingHere.endTime}
-                </Text>
-                {itemStartingHere.room ? (
-                  <Text style={styles.subjectRoom} numberOfLines={1}>
-                    📍 {itemStartingHere.room}
-                  </Text>
-                ) : null}
-              </TouchableOpacity>
-            );
-          }
-
-          // ช่องว่าง — กดเพื่อเพิ่มวิชา
-          return (
-            <TouchableOpacity
-              key={h}
-              style={styles.cell}
-              activeOpacity={0.4}
-              onPress={() => openAddModal(dayIndex, h)}
-            >
-              <Ionicons name="add" size={15} color="#D1D5DB" />
-            </TouchableOpacity>
-          );
-        })}
       </View>
     );
   };
 
-  // ── Render ─────────────────────────────────────────
+  // ─── Main render ───────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
       <Stack.Screen
         options={{
           title: "ตารางเรียน",
@@ -351,106 +367,79 @@ export default function ScheduleScreen() {
       />
 
       <View style={styles.container}>
-        <View style={styles.hint}>
-          <Ionicons
-            name="information-circle-outline"
-            size={18}
-            color="#1B8B6A"
-          />
-          <Text
-            style={styles.hintText}
-          >{`แตะช่องว่าง = เพิ่มวิชา  •  แตะวิชา = ดูรายละเอียด / ลบ`}</Text>
+        {/* Day tabs */}
+        <DayTabs />
+
+        {/* Summary bar */}
+        <View style={styles.summaryBar}>
+          <View style={styles.summaryLeft}>
+            <Ionicons name="calendar-outline" size={15} color="#1B8B6A" />
+            <Text style={styles.summaryDay}>วัน{DAYS_SHORT[activeDay]}</Text>
+          </View>
+          <Text style={styles.summaryCount}>
+            {todayItems.length > 0
+              ? `${todayItems.length} วิชา`
+              : "ยังไม่มีวิชา"}
+          </Text>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View>
-            <View style={styles.gridHeaderRow}>
-              <View style={[styles.gridHeaderCell, { width: DAY_W }]}>
-                <Text style={styles.gridHeaderText}>วัน \ เวลา</Text>
-              </View>
-              {HOURS.map((h) => (
-                <View
-                  key={h}
-                  style={[styles.gridHeaderCell, { width: CELL_W }]}
-                >
-                  <Text style={styles.gridHeaderText}>{h}:00</Text>
-                </View>
-              ))}
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {DAYS.map((day, di) => (
-                <DayRow key={di} dayLabel={day} dayIndex={di} />
-              ))}
-            </ScrollView>
-          </View>
+        {/* Timeline */}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 100 }}
+        >
+          <TimelineGrid />
         </ScrollView>
+
+        {/* FAB — เพิ่มวิชา */}
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => openAddModal(8)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      {/* ══ Detail/Delete Modal ══ */}
+      {/* ══ Detail Modal ══ */}
       <Modal
         visible={detailVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => {
-          setDetailVisible(false);
-          setDetailItem(null);
-        }}
+        onRequestClose={() => { setDetailVisible(false); setDetailItem(null); }}
       >
-        <View style={styles.detailOverlay}>
+        <View style={styles.overlay}>
           <View style={styles.detailBox}>
-            <View
-              style={[
-                styles.detailStrip,
-                { backgroundColor: detailItem?.color ?? "#1B8B6A" },
-              ]}
-            />
+            <View style={[styles.detailStrip, { backgroundColor: detailItem?.color ?? "#1B8B6A" }]} />
             <View style={styles.detailBody}>
               <Text style={styles.detailCode}>{detailItem?.subjectCode}</Text>
               <Text style={styles.detailName}>{detailItem?.subjectName}</Text>
+
               <View style={styles.detailRow}>
-                <View style={styles.detailIconWrap}>
-                  <Ionicons name="calendar-outline" size={16} color="#1B8B6A" />
-                </View>
-                <Text style={styles.detailText}>
-                  วัน{detailItem?.day !== undefined ? DAYS[detailItem.day] : ""}
-                </Text>
+                <View style={styles.detailIcon}><Ionicons name="calendar-outline" size={16} color="#1B8B6A" /></View>
+                <Text style={styles.detailText}>วัน{DAYS_SHORT[detailItem?.day ?? 0]}</Text>
               </View>
               <View style={styles.detailRow}>
-                <View style={styles.detailIconWrap}>
-                  <Ionicons name="time-outline" size={16} color="#1B8B6A" />
-                </View>
-                <Text style={styles.detailText}>
-                  {detailItem?.startTime} – {detailItem?.endTime}
-                </Text>
+                <View style={styles.detailIcon}><Ionicons name="time-outline" size={16} color="#1B8B6A" /></View>
+                <Text style={styles.detailText}>{detailItem?.startTime} – {detailItem?.endTime}</Text>
               </View>
               {detailItem?.room ? (
                 <View style={styles.detailRow}>
-                  <View style={styles.detailIconWrap}>
-                    <Ionicons
-                      name="location-outline"
-                      size={16}
-                      color="#1B8B6A"
-                    />
-                  </View>
+                  <View style={styles.detailIcon}><Ionicons name="location-outline" size={16} color="#1B8B6A" /></View>
                   <Text style={styles.detailText}>{detailItem.room}</Text>
                 </View>
               ) : null}
+
               <View style={styles.detailActions}>
                 <TouchableOpacity
                   style={styles.btnClose}
-                  onPress={() => {
-                    setDetailVisible(false);
-                    setDetailItem(null);
-                  }}
+                  onPress={() => { setDetailVisible(false); setDetailItem(null); }}
                 >
                   <Text style={styles.btnCloseText}>ปิด</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.btnDelete}
-                  onPress={handleDelete}
-                >
+                <TouchableOpacity style={styles.btnDelete} onPress={handleDelete}>
                   <Ionicons name="trash-outline" size={16} color="#fff" />
-                  <Text style={styles.btnDeleteText}>ลบวิชานี้</Text>
+                  <Text style={styles.btnDeleteText}>ลบวิชา</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -465,133 +454,137 @@ export default function ScheduleScreen() {
         animationType="slide"
         onRequestClose={() => setAddModalVisible(false)}
       >
-        <View style={styles.modalBg}>
-          <View style={styles.modalSheet}>
-            <View style={styles.dragHandle} />
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>เพิ่มรายวิชา</Text>
-                {selectedDay !== null && (
-                  <Text style={styles.modalSub}>วัน{DAYS[selectedDay]}</Text>
-                )}
-              </View>
-              <TouchableOpacity
-                style={styles.modalClose}
-                onPress={() => setAddModalVisible(false)}
-              >
-                <Ionicons name="close" size={20} color="#555" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.modalBody}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Text style={styles.fieldLabel}>ช่วงเวลา</Text>
-              <View style={styles.timeRow}>
-                <TouchableOpacity
-                  style={styles.timePill}
-                  onPress={() => openPicker("start")}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="time-outline" size={15} color="#1B8B6A" />
-                  <Text style={styles.timePillText}>{startTime}</Text>
-                  <Ionicons name="chevron-down" size={13} color="#999" />
-                </TouchableOpacity>
-                <Ionicons name="arrow-forward" size={16} color="#bbb" />
-                <TouchableOpacity
-                  style={styles.timePill}
-                  onPress={() => openPicker("end")}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="time-outline" size={15} color="#1B8B6A" />
-                  <Text style={styles.timePillText}>{endTime}</Text>
-                  <Ionicons name="chevron-down" size={13} color="#999" />
-                </TouchableOpacity>
-                <View style={styles.durationBadge}>
-                  <Text style={styles.durationText}>
-                    {String(durationLabel())}
-                  </Text>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.sheetBg}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+
+              {/* Header */}
+              <View style={styles.sheetHeader}>
+                <View>
+                  <Text style={styles.sheetTitle}>เพิ่มรายวิชา</Text>
+                  <Text style={styles.sheetSub}>วัน{DAYS_SHORT[activeDay]}</Text>
                 </View>
+                <TouchableOpacity
+                  style={styles.sheetClose}
+                  onPress={() => setAddModalVisible(false)}
+                >
+                  <Ionicons name="close" size={20} color="#555" />
+                </TouchableOpacity>
               </View>
 
-              <Text style={styles.fieldLabel}>สีวิชา</Text>
-              <View style={styles.colorRow}>
-                {COLORS.map((c, i) => (
+              <ScrollView
+                contentContainerStyle={styles.sheetBody}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {/* เวลา */}
+                <Text style={styles.fieldLabel}>ช่วงเวลา</Text>
+                <View style={styles.timePickerRow}>
                   <TouchableOpacity
-                    key={c}
-                    style={[
-                      styles.colorDot,
-                      { backgroundColor: c },
-                      colorIndex === i && styles.colorDotOn,
-                    ]}
-                    onPress={() => setColorIndex(i)}
+                    style={styles.timePill}
+                    onPress={() => openPicker("start")}
+                    activeOpacity={0.8}
                   >
-                    {colorIndex === i && (
-                      <Ionicons name="checkmark" size={14} color="#fff" />
-                    )}
+                    <Ionicons name="time-outline" size={15} color="#1B8B6A" />
+                    <Text style={styles.timePillText}>{startTime}</Text>
+                    <Ionicons name="chevron-down" size={13} color="#999" />
                   </TouchableOpacity>
-                ))}
-              </View>
 
-              <Text style={styles.fieldLabel}>
-                รหัสวิชา <Text style={{ color: "#EF4444" }}>*</Text>
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="เช่น 01418113"
-                placeholderTextColor="#C4C4C4"
-                value={subjectCode}
-                onChangeText={setSubjectCode}
-              />
+                  <View style={styles.timeArrow}>
+                    <Ionicons name="arrow-forward" size={16} color="#bbb" />
+                  </View>
 
-              <Text style={styles.fieldLabel}>
-                ชื่อวิชา <Text style={{ color: "#EF4444" }}>*</Text>
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="ชื่อวิชา"
-                placeholderTextColor="#C4C4C4"
-                value={subjectName}
-                onChangeText={setSubjectName}
-              />
-
-              <Text style={styles.fieldLabel}>ห้องเรียน</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="เช่น อาคาร 5 ห้อง 501 (ไม่บังคับ)"
-                placeholderTextColor="#C4C4C4"
-                value={room}
-                onChangeText={setRoom}
-              />
-
-              {(subjectCode || subjectName) && (
-                <View
-                  style={[
-                    styles.preview,
-                    { backgroundColor: COLORS[colorIndex] },
-                  ]}
-                >
-                  <Text style={styles.previewCode}>{subjectCode || "—"}</Text>
-                  <Text style={styles.previewName}>{subjectName || "—"}</Text>
-                  <Text style={styles.previewTime}>
-                    {startTime} – {endTime}
-                    {room ? `  📍 ${room}` : ""}
-                  </Text>
+                  <TouchableOpacity
+                    style={styles.timePill}
+                    onPress={() => openPicker("end")}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="time-outline" size={15} color="#1B8B6A" />
+                    <Text style={styles.timePillText}>{endTime}</Text>
+                    <Ionicons name="chevron-down" size={13} color="#999" />
+                  </TouchableOpacity>
                 </View>
-              )}
 
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={handleAddSubject}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#fff" />
-                <Text style={styles.addBtnText}>เพิ่มรายวิชา</Text>
-              </TouchableOpacity>
-            </ScrollView>
+                <View style={styles.durationRow}>
+                  <Ionicons name="hourglass-outline" size={13} color="#1B8B6A" />
+                  <Text style={styles.durationText}>{durationLabel()}</Text>
+                </View>
+
+                {/* สี */}
+                <Text style={styles.fieldLabel}>สีวิชา</Text>
+                <View style={styles.colorRow}>
+                  {COLORS.map((c, i) => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[styles.colorDot, { backgroundColor: c }, colorIndex === i && styles.colorDotOn]}
+                      onPress={() => setColorIndex(i)}
+                    >
+                      {colorIndex === i && <Ionicons name="checkmark" size={14} color="#fff" />}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* รหัสวิชา */}
+                <Text style={styles.fieldLabel}>
+                  รหัสวิชา <Text style={{ color: "#EF4444" }}>*</Text>
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="เช่น 01418113"
+                  placeholderTextColor="#C4C4C4"
+                  value={subjectCode}
+                  onChangeText={setSubjectCode}
+                />
+
+                {/* ชื่อวิชา */}
+                <Text style={styles.fieldLabel}>
+                  ชื่อวิชา <Text style={{ color: "#EF4444" }}>*</Text>
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="ชื่อวิชา"
+                  placeholderTextColor="#C4C4C4"
+                  value={subjectName}
+                  onChangeText={setSubjectName}
+                />
+
+                {/* ห้องเรียน */}
+                <Text style={styles.fieldLabel}>ห้องเรียน</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="เช่น อาคาร 5 ห้อง 501 (ไม่บังคับ)"
+                  placeholderTextColor="#C4C4C4"
+                  value={room}
+                  onChangeText={setRoom}
+                />
+
+                {/* Preview */}
+                {(subjectCode || subjectName) && (
+                  <View style={[styles.preview, { backgroundColor: COLORS[colorIndex] }]}>
+                    <Text style={styles.previewCode}>{subjectCode || "—"}</Text>
+                    <Text style={styles.previewName}>{subjectName || "—"}</Text>
+                    <Text style={styles.previewTime}>
+                      {startTime} – {endTime}{room ? `  📍 ${room}` : ""}
+                    </Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={styles.addBtn}
+                  onPress={handleAddSubject}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                  <Text style={styles.addBtnText}>เพิ่มรายวิชา</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ══ Time Picker Modal ══ */}
@@ -601,25 +594,20 @@ export default function ScheduleScreen() {
         animationType="fade"
         onRequestClose={() => setPickerVisible(false)}
       >
-        <View style={styles.pickerOverlay}>
+        <View style={styles.overlay}>
           <View style={styles.pickerBox}>
             <View style={styles.pickerHeader}>
               <Text style={styles.pickerTitle}>
                 {pickerTarget === "start" ? "เวลาเริ่มต้น" : "เวลาสิ้นสุด"}
               </Text>
-              <TouchableOpacity
-                style={styles.pickerDoneBtn}
-                onPress={confirmPicker}
-              >
+              <TouchableOpacity style={styles.pickerDoneBtn} onPress={confirmPicker}>
                 <Text style={styles.pickerDoneText}>ยืนยัน</Text>
               </TouchableOpacity>
             </View>
             <FlatList
               data={
                 pickerTarget === "end"
-                  ? TIME_OPTIONS.filter(
-                      (t) => timeToDecimal(t) > timeToDecimal(startTime),
-                    )
+                  ? TIME_OPTIONS.filter((t) => timeToDecimal(t) > timeToDecimal(startTime))
                   : TIME_OPTIONS
               }
               keyExtractor={(t) => t}
@@ -629,26 +617,14 @@ export default function ScheduleScreen() {
                 const active = t === pickerSelected;
                 return (
                   <TouchableOpacity
-                    style={[
-                      styles.timeOption,
-                      active && styles.timeOptionActive,
-                    ]}
+                    style={[styles.timeOption, active && styles.timeOptionActive]}
                     onPress={() => setPickerSelected(t)}
                   >
-                    <Text
-                      style={[
-                        styles.timeOptionText,
-                        active && styles.timeOptionTextActive,
-                      ]}
-                    >
+                    <Text style={[styles.timeOptionText, active && styles.timeOptionTextActive]}>
                       {t} น.
                     </Text>
                     {active && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color="#1B8B6A"
-                      />
+                      <Ionicons name="checkmark-circle" size={20} color="#1B8B6A" />
                     )}
                   </TouchableOpacity>
                 );
@@ -657,120 +633,198 @@ export default function ScheduleScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#1B8B6A" },
+  safe:      { flex: 1, backgroundColor: "#F2F4F7" },
   container: { flex: 1, backgroundColor: "#F2F4F7" },
 
-  hint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  // ── Day tabs ──────────────────────────────────────────────────────────
+  dayTabsWrap: {
     backgroundColor: "#fff",
-    marginHorizontal: 14,
-    marginVertical: 12,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  hintText: { fontSize: 12, color: "#555", fontWeight: "500" },
-
-  gridHeaderRow: {
-    flexDirection: "row",
-    backgroundColor: "#1B8B6A",
-    marginHorizontal: 14,
-    borderTopLeftRadius: 10,
-    borderTopRightRadius: 10,
-  },
-  gridHeaderCell: {
-    height: 38,
-    width: CELL_W,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.15)",
-  },
-  gridHeaderText: { color: "#fff", fontWeight: "700", fontSize: 11 },
-
-  gridRow: {
-    flexDirection: "row",
-    marginHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#EBEBEB",
+    borderBottomColor: "#F0F0F0",
   },
-  dayLabelCell: {
-    width: DAY_W,
-    height: CELL_H,
-    justifyContent: "center",
+  dayTabsContent: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+  },
+  dayTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRightWidth: 1,
-    borderRightColor: "#E5E7EB",
+    minWidth: 64,
   },
-  dayLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#374151",
-    textAlign: "center",
+  dayTabActive: {
+    backgroundColor: "#1B8B6A",
+  },
+  dayTabText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#666",
+  },
+  dayTabTextActive: {
+    color: "#fff",
+  },
+  dayDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#1B8B6A",
+    marginTop: 4,
+  },
+  dayDotActive: {
+    backgroundColor: "rgba(255,255,255,0.7)",
   },
 
-  cell: {
-    width: CELL_W,
-    height: CELL_H,
+  // ── Summary bar ───────────────────────────────────────────────────────
+  summaryBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: "#fff",
-    borderRightWidth: 1,
-    borderRightColor: "#F0F0F0",
-    justifyContent: "center",
-    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+    marginBottom: 2,
   },
+  summaryLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  summaryDay:  { fontSize: 14, fontWeight: "700", color: "#111" },
+  summaryCount: { fontSize: 13, color: "#888", fontWeight: "500" },
 
-  subjectCell: {
-    height: CELL_H,
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    justifyContent: "flex-start",
-    overflow: "hidden",
-    alignItems: "flex-start",
+  // ── Timeline ──────────────────────────────────────────────────────────
+  gridCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    overflow: "visible",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 5,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  subjectCode: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#fff",
-    marginBottom: 1,
+  hourRow: {
+    flexDirection: "row",
+    minHeight: ROW_H,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F5F5",
   },
-  subjectName: {
-    fontSize: 9,
-    color: "rgba(255,255,255,0.95)",
-    marginBottom: 1,
+  timeCol: {
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+    paddingRight: 10,
+    paddingTop: 8,
+    backgroundColor: "#FAFAFA",
+    borderRightWidth: 1,
+    borderRightColor: "#EFEFEF",
   },
-  subjectTime: {
-    fontSize: 8,
-    color: "rgba(255,255,255,0.85)",
+  timeText: {
+    fontSize: 11,
+    color: "#999",
     fontWeight: "600",
   },
-  subjectRoom: { fontSize: 8, color: "rgba(255,255,255,0.75)" },
+  hourContent: {
+    flex: 1,
+    minHeight: ROW_H,
+    position: "relative",
+  },
+  hourLine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "#F0F0F0",
+  },
+  emptySlot: {
+    flex: 1,
+    height: ROW_H,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  subjectBlock: {
+    marginHorizontal: 6,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    overflow: "hidden",
+  },
+  blockInner: {
+    flex: 1,
+    padding: 10,
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
+  },
+  blockCode: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 2,
+  },
+  blockName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.95)",
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  blockMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexWrap: "wrap",
+  },
+  blockTime: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "500",
+  },
+  blockTimeDot: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.6)",
+  },
 
-  detailOverlay: {
+  // ── FAB ───────────────────────────────────────────────────────────────
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#1B8B6A",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#1B8B6A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+
+  // ── Overlay ───────────────────────────────────────────────────────────
+  overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 28,
+    padding: 24,
   },
+
+  // ── Detail Modal ──────────────────────────────────────────────────────
   detailBox: {
     backgroundColor: "#fff",
     borderRadius: 20,
@@ -784,64 +838,39 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   detailStrip: { height: 8 },
-  detailBody: { padding: 24 },
-  detailCode: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#888",
-    marginBottom: 4,
-  },
-  detailName: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111",
-    marginBottom: 18,
-  },
-  detailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-  },
-  detailIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+  detailBody:  { padding: 24 },
+  detailCode:  { fontSize: 13, fontWeight: "700", color: "#888", marginBottom: 4 },
+  detailName:  { fontSize: 20, fontWeight: "800", color: "#111", marginBottom: 20 },
+  detailRow:   { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  detailIcon:  {
+    width: 32, height: 32, borderRadius: 8,
     backgroundColor: "#E6F4F0",
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: "center", alignItems: "center",
   },
-  detailText: { fontSize: 14, color: "#333", fontWeight: "500" },
+  detailText:    { fontSize: 14, color: "#333", fontWeight: "500" },
   detailActions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  btnClose: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
+  btnClose:      {
+    flex: 1, paddingVertical: 13, borderRadius: 12,
+    backgroundColor: "#F3F4F6", alignItems: "center",
   },
-  btnCloseText: { fontSize: 15, fontWeight: "600", color: "#555" },
+  btnCloseText:  { fontSize: 15, fontWeight: "600", color: "#555" },
   btnDelete: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: "#EF4444",
+    flex: 1, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 6,
+    paddingVertical: 13, borderRadius: 12, backgroundColor: "#EF4444",
   },
   btnDeleteText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 
-  modalBg: {
+  // ── Add Modal (bottom sheet) ───────────────────────────────────────────
+  sheetBg: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalSheet: {
+  sheet: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,
@@ -849,76 +878,55 @@ const styles = StyleSheet.create({
     elevation: 18,
     maxHeight: "92%",
   },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
+  sheetHandle: {
+    width: 40, height: 4, borderRadius: 2,
     backgroundColor: "#DDD",
     alignSelf: "center",
     marginTop: 10,
   },
-  modalHeader: {
+  sheetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#111" },
-  modalSub: { fontSize: 13, color: "#1B8B6A", fontWeight: "600", marginTop: 3 },
-  modalClose: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  sheetTitle: { fontSize: 18, fontWeight: "800", color: "#111" },
+  sheetSub:   { fontSize: 13, color: "#1B8B6A", fontWeight: "600", marginTop: 2 },
+  sheetClose: {
+    width: 34, height: 34, borderRadius: 17,
     backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: "center", alignItems: "center",
   },
-  modalBody: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
+  sheetBody: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 60 },
 
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-    marginBottom: 8,
-    marginTop: 16,
-  },
+  fieldLabel: { fontSize: 13, fontWeight: "700", color: "#374151", marginBottom: 8, marginTop: 16 },
 
-  timeRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timePickerRow: { flexDirection: "row", alignItems: "center" },
   timePill: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: "#F8FFFE",
-    borderWidth: 1.5,
-    borderColor: "#D1FAE5",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
+    borderWidth: 1.5, borderColor: "#D1FAE5",
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
   },
   timePillText: { flex: 1, fontSize: 16, fontWeight: "700", color: "#111" },
-  durationBadge: {
+  timeArrow: { paddingHorizontal: 10 },
+  durationRow: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    marginTop: 8,
     backgroundColor: "#E6F4F0",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    alignSelf: "flex-start",
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20,
   },
-  durationText: { fontSize: 11, color: "#1B8B6A", fontWeight: "700" },
+  durationText: { fontSize: 12, color: "#1B8B6A", fontWeight: "700" },
 
-  colorRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
-  colorDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  colorRow:  { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  colorDot:  { width: 34, height: 34, borderRadius: 17, justifyContent: "center", alignItems: "center" },
   colorDotOn: {
-    borderWidth: 3,
-    borderColor: "#fff",
+    borderWidth: 3, borderColor: "#fff",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -928,106 +936,56 @@ const styles = StyleSheet.create({
 
   input: {
     backgroundColor: "#F9FAFB",
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: "#111",
+    borderWidth: 1.5, borderColor: "#E5E7EB",
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 15, color: "#111",
   },
 
   preview: {
-    marginTop: 16,
-    borderRadius: 12,
-    padding: 14,
+    marginTop: 16, borderRadius: 14, padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOpacity: 0.2, shadowRadius: 4, elevation: 4,
   },
-  previewCode: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#fff",
-    marginBottom: 2,
-  },
-  previewName: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  previewTime: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.85)",
-    fontWeight: "500",
-  },
+  previewCode: { fontSize: 12, fontWeight: "800", color: "#fff", marginBottom: 3 },
+  previewName: { fontSize: 15, fontWeight: "700", color: "#fff", marginBottom: 5 },
+  previewTime: { fontSize: 12, color: "rgba(255,255,255,0.85)" },
 
   addBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
     backgroundColor: "#1B8B6A",
-    paddingVertical: 15,
-    borderRadius: 14,
-    marginTop: 20,
+    paddingVertical: 15, borderRadius: 14, marginTop: 20,
     shadowColor: "#1B8B6A",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOpacity: 0.3, shadowRadius: 6, elevation: 5,
   },
   addBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
-  pickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
+  // ── Time Picker Modal ─────────────────────────────────────────────────
   pickerBox: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    width: "100%",
-    maxWidth: 320,
-    overflow: "hidden",
+    backgroundColor: "#fff", borderRadius: 20,
+    width: "100%", maxWidth: 320, overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 16,
+    shadowOpacity: 0.2, shadowRadius: 16, elevation: 16,
   },
   pickerHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: "#F0F0F0",
   },
-  pickerTitle: { fontSize: 16, fontWeight: "700", color: "#111" },
-  pickerDoneBtn: {
+  pickerTitle:    { fontSize: 16, fontWeight: "700", color: "#111" },
+  pickerDoneBtn:  {
     backgroundColor: "#1B8B6A",
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20,
   },
   pickerDoneText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   timeOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F8F8F8",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: "#F8F8F8",
   },
-  timeOptionActive: { backgroundColor: "#F0FDF9" },
-  timeOptionText: { fontSize: 16, color: "#333", fontWeight: "500" },
+  timeOptionActive:     { backgroundColor: "#F0FDF9" },
+  timeOptionText:       { fontSize: 16, color: "#333", fontWeight: "500" },
   timeOptionTextActive: { color: "#1B8B6A", fontWeight: "700" },
 });

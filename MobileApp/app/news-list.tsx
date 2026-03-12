@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, SafeAreaView, TextInput,
+  ActivityIndicator, TextInput,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query, orderBy, doc, getDoc } from 'firebase/firestore';
+import {
+  collection, query, orderBy, doc, getDoc,
+  onSnapshot,
+} from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -18,6 +23,7 @@ interface NewsItem {
 }
 
 export default function NewsListScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { userId, userProfile } = useAuth();
   const [news, setNews]         = useState<NewsItem[]>([]);
@@ -25,7 +31,10 @@ export default function NewsListScreen() {
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
 
-  useEffect(() => { if (userId) fetchAllNews(); }, [userId]);
+  // ── Realtime listener ref (cleanup เมื่อออกจากหน้า) ───────────────────────
+  const unsubRef = useRef<(() => void) | null>(null);
+
+  // filter เมื่อ search หรือ news เปลี่ยน
   useEffect(() => {
     const q = search.trim().toLowerCase();
     setFiltered(!q ? news : news.filter(n =>
@@ -33,28 +42,39 @@ export default function NewsListScreen() {
     ));
   }, [search, news]);
 
-  const fetchAllNews = async () => {
-    try {
-      const snap = await getDocs(query(collection(db, 'News'), orderBy('time', 'desc')));
-      const allNews = snap.docs.map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
+  // useFocusEffect: เริ่ม listener ทุกครั้งที่กลับมาหน้านี้, หยุดเมื่อออก
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId) return;
 
-      // ดึงกลุ่มที่ user อยู่
+      let userGroupIds: string[] = [];
+
+      // ดึงกลุ่ม user ก่อน แล้วค่อยเริ่ม realtime listener
       const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
-      const userDoc = await getDoc(doc(db, col, userId!));
-      const userGroupIds: string[] = userDoc.data()?.group_ids || [];
+      getDoc(doc(db, col, userId)).then(userDoc => {
+        userGroupIds = userDoc.data()?.group_ids || [];
 
-      // กรองข่าว: แสดงถ้า all / กลุ่มที่ user อยู่ / ส่งตรงถึง user นี้
-      const visible = allNews.filter(n => {
-        if (!n.group_id || n.group_id === 'all') return true;
-        if (n.group_id === `personal_${userId}`) return true;
-        if (userGroupIds.includes(n.group_id)) return true;
-        return false;
-      });
+        const q = query(collection(db, 'News'), orderBy('time', 'desc'));
+        unsubRef.current = onSnapshot(q, snap => {
+          const allNews = snap.docs.map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
+          const visible = allNews.filter(n => {
+            if (!n.group_id || n.group_id === 'all') return true;
+            if (n.group_id === `personal_${userId}`) return true;
+            if (userGroupIds.includes(n.group_id)) return true;
+            return false;
+          });
+          setNews(visible);
+          setLoading(false);
+        });
+      }).catch(() => setLoading(false));
 
-      setNews(visible); setFiltered(visible);
-    } catch {}
-    finally { setLoading(false); }
-  };
+      // cleanup: หยุด listener เมื่อออกจากหน้า
+      return () => {
+        unsubRef.current?.();
+        unsubRef.current = null;
+      };
+    }, [userId, userProfile])
+  );
 
   const formatDate = (ts: any) => {
     if (!ts) return '';
@@ -94,7 +114,7 @@ export default function NewsListScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{
         title: 'ข่าวสารทั้งหมด',
         headerStyle: { backgroundColor: '#1B8B6A' },
@@ -138,7 +158,7 @@ export default function NewsListScreen() {
           />
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
