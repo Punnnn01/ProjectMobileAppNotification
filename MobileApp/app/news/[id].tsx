@@ -129,8 +129,8 @@ export default function NewsDetailScreen() {
   };
 
   /**
-   * เปิดไฟล์ — download ลง cache แล้วเปิดด้วย expo-sharing
-   * Android จะเด้ง sheet ให้เลือกแอปเปิดเองได้
+   * เปิดไฟล์ — download จาก backend proxy ลง cache แล้วเปิดด้วย expo-sharing
+   * ใช้ backend เป็นตัวกลางเพื่อแก้ปัญหา Cloudinary /raw/upload/ ที่ browser เปิดไม่ได้
    */
   const handleOpenFile = useCallback(async (file: NewsFile) => {
     const fileKey = file.file_id || file.file_name;
@@ -138,21 +138,13 @@ export default function NewsDetailScreen() {
 
     try {
       const mime    = file.mime_type || '';
-      const isImage = mime.startsWith('image/');
-
-      // รูปภาพ — เปิด URL ตรงๆ ผ่าน browser
-      if (isImage) {
-        await Linking.openURL(file.fileURL);
-        setDownloadingId(null);
-        return;
-      }
-
-      // เอกสาร — download ลง cache แล้วเปิดด้วย expo-sharing
-      const ext      = getExtension(file.file_name, mime);
       const safeName = file.file_name.replace(/[^a-zA-Z0-9ก-๛._-]/g, '_');
       const localUri = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
 
-      console.log('⬇️ Downloading:', file.fileURL);
+      console.log('⬇️ Downloading via backend proxy:', file.fileURL);
+
+      // download ผ่าน backend proxy URL (ที่ backend ส่งมาให้แล้ว)
+      // backend จะ fetch จาก Cloudinary แล้ว stream ส่งกลับพร้อม Content-Type ที่ถูกต้อง
       const downloadResult = await FileSystem.downloadAsync(file.fileURL, localUri);
 
       if (downloadResult.status !== 200) {
@@ -164,11 +156,11 @@ export default function NewsDetailScreen() {
       // ตรวจว่า expo-sharing รองรับบน device นี้ไหม
       const canShare = await Sharing.isAvailableAsync();
       if (!canShare) {
-        // fallback — เปิด URL ตรงๆ ถ้า sharing ไม่รองรับ
-        await Linking.openURL(file.fileURL);
+        Alert.alert('ไม่รองรับ', 'อุปกรณ์นี้ไม่รองรับการเปิดไฟล์');
         return;
       }
 
+      const ext = getExtension(file.file_name, mime);
       await Sharing.shareAsync(downloadResult.uri, {
         mimeType: mime || getMimeFromExt(ext),
         dialogTitle: `เปิด ${file.file_name}`,
@@ -179,14 +171,7 @@ export default function NewsDetailScreen() {
       console.error('❌ Open file error:', err);
       Alert.alert(
         'ไม่สามารถเปิดไฟล์ได้',
-        'กรุณาติดตั้งแอปสำหรับเปิดไฟล์ประเภทนี้ เช่น Adobe Acrobat, WPS Office หรือ Google Drive',
-        [
-          { text: 'ยกเลิก', style: 'cancel' },
-          {
-            text: 'เปิดใน Browser',
-            onPress: () => Linking.openURL(file.fileURL).catch(() => {}),
-          },
-        ]
+        'กรุณาติดตั้งแอปสำหรับเปิดไฟล์ประเภทนี้ เช่น Adobe Acrobat, WPS Office หรือ Google Drive'
       );
     } finally {
       setDownloadingId(null);

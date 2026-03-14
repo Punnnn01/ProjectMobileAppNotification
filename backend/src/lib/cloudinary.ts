@@ -37,11 +37,6 @@ export async function uploadToCloudinary(
   format: string;
 }> {
   return new Promise((resolve, reject) => {
-    // กำหนด resource_type ตามชนิดไฟล์
-    let resourceType: 'image' | 'video' | 'raw' = 'raw';
-    if (mimetype.startsWith('image/')) resourceType = 'image';
-    else if (mimetype.startsWith('video/')) resourceType = 'video';
-
     // สร้าง public_id จากชื่อไฟล์จริง (safe)
     const safeFilename = originalName
       .replace(/[^a-zA-Z0-9ก-๛._-]/g, '_')
@@ -49,19 +44,19 @@ export async function uploadToCloudinary(
     const uniqueId = `${Date.now()}_${safeFilename}`;
 
     const uploadOptions: any = {
-      resource_type: resourceType,
+      // ใช้ 'auto' ให้ Cloudinary เลือก resource_type ที่เหมาะสมเอง
+      // image → /image/upload/, video → /video/upload/, เอกสาร → /raw/upload/
+      // แต่ Cloudinary จะจัดการ Content-Type และ serve ให้ถูกต้องกว่าการกำหนดเอง
+      resource_type: 'auto',
       folder: 'news_files',
       public_id: uniqueId,
       use_filename: false,
       unique_filename: false,
       access_mode: 'public',
       type: 'upload',
+      // ไม่บังคับดาวน์โหลด — ให้ browser/mobile เปิดดูได้โดยตรง
+      flags: 'attachment:false',
     };
-
-    // สำหรับเอกสาร (raw) — บอก Cloudinary ไม่ต้องบังคับดาวน์โหลด
-    if (resourceType === 'raw') {
-      uploadOptions.flags = 'attachment:false';
-    }
 
     const uploadStream = cloudinary.uploader.upload_stream(
       uploadOptions,
@@ -87,13 +82,28 @@ export async function uploadToCloudinary(
 
 /**
  * ลบไฟล์ออกจาก Cloudinary
+ * ใช้ mime_type เพื่อรู้ว่าไฟล์ถูกเก็บเป็น resource_type อะไรใน Cloudinary
  */
 export async function deleteFromCloudinary(publicId: string, mimetype?: string): Promise<void> {
+  // ตอน upload ใช้ 'auto' ดังนั้น Cloudinary จะเก็บเป็น image/video/raw ตามนี้
   let resourceType: 'image' | 'video' | 'raw' = 'raw';
   if (mimetype?.startsWith('image/')) resourceType = 'image';
   else if (mimetype?.startsWith('video/')) resourceType = 'video';
 
-  await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  // ลองลบตาม resource_type ที่เดามาก่อน
+  try {
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+  } catch {
+    // ถ้าลบไม่สำเร็จ ลอง resource_type อื่น (fallback)
+    const fallbacks: ('image' | 'video' | 'raw')[] = ['image', 'video', 'raw']
+      .filter(t => t !== resourceType) as ('image' | 'video' | 'raw')[];
+    for (const t of fallbacks) {
+      try {
+        await cloudinary.uploader.destroy(publicId, { resource_type: t });
+        break;
+      } catch { continue; }
+    }
+  }
 }
 
 export default cloudinary;
