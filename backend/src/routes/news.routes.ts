@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db, admin } from '../lib/firebase';
-import { uploadToCloudinary, deleteFromCloudinary } from '../lib/cloudinary';
+import { uploadToSupabase, deleteFromSupabase } from '../lib/supabase';
+import { deleteFromCloudinary } from '../lib/cloudinary'; // ยังใช้ลบไฟล์เก่าบน Cloudinary
 import multer from 'multer';
 import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
@@ -29,25 +30,24 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     console.log('📰 CREATING NEWS | author:', author_id, '| group:', group_id || 'all');
     console.log('📎 Files:', uploadedFiles?.length || 0);
 
-    // 1. อัปโหลดไฟล์ไป Cloudinary
+    // 1. อัปโหลดไฟล์ไป Supabase Storage
     const filesData: any[] = [];
 
     if (uploadedFiles && uploadedFiles.length > 0) {
-      console.log('📤 Uploading files to Cloudinary...');
+      console.log('📤 Uploading files to Supabase Storage...');
       for (const file of uploadedFiles) {
         try {
           // แปลง originalname จาก Latin-1 → UTF-8 เพื่อรองรับชื่อไฟล์ภาษาไทย
           const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-          const result = await uploadToCloudinary(file.buffer, decodedName, file.mimetype);
+          const result = await uploadToSupabase(file.buffer, decodedName, file.mimetype);
           filesData.push({
             file_name: decodedName,
-            fileURL: result.url,
-            public_id: result.public_id,
+            fileURL: result.url,   // public URL เปิดได้โดยตรง
+            storage_path: result.path, // เก็บ path ไว้ลบทีหลัง
             file_size: result.bytes,
             mime_type: file.mimetype,
-            format: result.format,
           });
-          console.log(`   ✅ Uploaded: ${file.originalname} → ${result.url}`);
+          console.log(`   ✅ Uploaded: ${decodedName} → ${result.url}`);
         } catch (err: any) {
           console.error(`   ❌ Failed: ${file.originalname} — ${err.message}`);
         }
@@ -70,11 +70,11 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
       group_id: student_id_target ? `personal_${student_id_target}` : (group_id || 'all'),
       student_id_target: student_id_target || null,
       files: filesData.map(f => ({
-        file_name: f.file_name,
-        fileURL: f.fileURL,
-        public_id: f.public_id,
-        file_size: f.file_size,
-        mime_type: f.mime_type,
+        file_name:    f.file_name,
+        fileURL:      f.fileURL,
+        storage_path: f.storage_path, // Supabase path สำหรับลบ
+        file_size:    f.file_size,
+        mime_type:    f.mime_type,
       })),
       links: links,
     };
@@ -88,15 +88,15 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
       for (const f of filesData) {
         const fileDocRef = db.collection('News_Files').doc();
         batch.set(fileDocRef, {
-          file_id: fileDocRef.id,
-          news_id: newsRef.id,
-          file_name: f.file_name,
-          fileURL: f.fileURL,
-          public_id: f.public_id,
-          file_size: f.file_size,
-          mime_type: f.mime_type,
-          upload_time: admin.firestore.FieldValue.serverTimestamp(),
-          upload_by: author_id || 'admin_001',
+          file_id:      fileDocRef.id,
+          news_id:      newsRef.id,
+          file_name:    f.file_name,
+          fileURL:      f.fileURL,      // Supabase public URL
+          storage_path: f.storage_path, // Supabase path สำหรับลบ
+          file_size:    f.file_size,
+          mime_type:    f.mime_type,
+          upload_time:  admin.firestore.FieldValue.serverTimestamp(),
+          upload_by:    author_id || 'admin_001',
         });
       }
       await batch.commit();
@@ -226,9 +226,17 @@ router.delete('/:id', async (req: Request, res: Response) => {
     if (newsDoc.exists) {
       const files: any[] = newsDoc.data()?.files || [];
 
-      // ลบไฟล์ออกจาก Cloudinary
+      // ลบไฟล์ — รองรับทั้ง Supabase (ใหม่) และ Cloudinary (เก่า)
       for (const f of files) {
-        if (f.public_id) {
+        if (f.storage_path) {
+          // ไฟล์ใหม่ — อยู่บน Supabase
+          try {
+            await deleteFromSupabase(f.storage_path);
+          } catch (e) {
+            console.warn('⚠️ Could not delete from Supabase:', f.storage_path);
+          }
+        } else if (f.public_id) {
+          // ไฟล์เก่า — อยู่บน Cloudinary
           try {
             await deleteFromCloudinary(f.public_id, f.mime_type);
             console.log('🗑️ Deleted from Cloudinary:', f.public_id);
