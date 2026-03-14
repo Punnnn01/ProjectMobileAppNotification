@@ -11,6 +11,7 @@ import teacherRoutes from './routes/teacher.routes';
 import groupNotificationRoutes from './routes/group_notification.routes';
 import chatbotRoutes from './routes/chatbot.routes';
 import scheduleRoutes from './routes/schedule.routes';
+import newsFilesRoutes from './routes/news-files.routes';
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -47,6 +48,7 @@ app.use('/api/notifications',       notificationRoutes);
 app.use('/api/group-notifications', groupNotificationRoutes);
 app.use('/api/chatbot',             chatbotRoutes);
 app.use('/api/schedule',            scheduleRoutes);
+app.use('/api/news-files',          newsFilesRoutes);
 
 // เริ่มฟังพอร์ต
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;

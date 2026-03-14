@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, TouchableOpacity,
   StyleSheet, Alert, Linking,
@@ -7,10 +7,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
 
-interface NewsFile { file_name: string; fileURL: string; file_size?: number; mime_type?: string; }
+const BACKEND_URL = 'https://projectmobileappnotification-production.up.railway.app';
+
+interface NewsFile {
+  file_id?: string;
+  file_name: string;
+  fileURL: string;
+  file_size?: number;
+  mime_type?: string;
+}
 interface NewsLink { label: string; url: string; }
 interface NewsData {
   news_id: string; title: string; content: string;
@@ -25,22 +35,63 @@ export default function NewsDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user, userId, userProfile } = useAuth();
-  const [news, setNews] = useState<NewsData | null>(null);
-  const [loading, setLoading] = useState(true);
+
+  const [news, setNews]               = useState<NewsData | null>(null);
+  const [loading, setLoading]         = useState(true);
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarking, setBookmarking] = useState(false);
 
+  // ไฟล์จาก News_Files collection (ผ่าน backend)
+  const [newsFiles, setNewsFiles]         = useState<NewsFile[]>([]);
+  const [filesLoading, setFilesLoading]   = useState(false);
+  // track ว่าไฟล์ไหนกำลัง download อยู่
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => { if (id) fetchNews(); else setLoading(false); }, [id]);
 
   const fetchNews = async () => {
     try {
       const snap = await getDoc(doc(db, 'News', id));
-      if (!snap.exists()) { Alert.alert('ข้อผิดพลาด', 'ไม่พบข่าวนี้'); router.back(); return; }
-      setNews(snap.data() as NewsData);
+      if (!snap.exists()) {
+        Alert.alert('ข้อผิดพลาด', 'ไม่พบข่าวนี้');
+        router.back();
+        return;
+      }
+      const data = snap.data() as NewsData;
+      setNews(data);
       if (user && userId) await checkBookmark();
-    } catch (e: any) { Alert.alert('ข้อผิดพลาด', e.message); }
-    finally { setLoading(false); }
+
+      // ดึงไฟล์จาก backend ถ้ามีไฟล์แนบ
+      if (data.files && data.files.length > 0) {
+        fetchNewsFiles(snap.id);
+      }
+    } catch (e: any) {
+      Alert.alert('ข้อผิดพลาด', e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ดึงไฟล์จาก News_Files collection ผ่าน backend
+  // backend จะ clean URL (ตัด fl_attachment) ให้ก่อนส่งกลับ
+  const fetchNewsFiles = async (newsId: string) => {
+    setFilesLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/news-files/${newsId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.success && json.files.length > 0) {
+        setNewsFiles(json.files);
+      } else {
+        // fallback ใช้ข้อมูลจาก news.files โดยตรงถ้า News_Files ว่าง
+        setNewsFiles([]);
+      }
+    } catch {
+      // fallback — ถ้า backend error ให้ใช้ files จาก news document แทน
+      setNewsFiles([]);
+    } finally {
+      setFilesLoading(false);
+    }
   };
 
   const checkBookmark = async () => {
@@ -51,7 +102,10 @@ export default function NewsDetailScreen() {
   };
 
   const toggleBookmark = async () => {
-    if (!user || !userId) { Alert.alert('กรุณาเข้าสู่ระบบ', 'ต้องเข้าสู่ระบบก่อนบันทึกข่าว'); return; }
+    if (!user || !userId) {
+      Alert.alert('กรุณาเข้าสู่ระบบ', 'ต้องเข้าสู่ระบบก่อนบันทึกข่าว');
+      return;
+    }
     setBookmarking(true);
     try {
       const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
@@ -69,40 +123,127 @@ export default function NewsDetailScreen() {
         await setDoc(doc(db, col, userId), { bookmarks: [id] }, { merge: true });
         setIsBookmarked(true);
       }
-    } finally { setBookmarking(false); }
-  };
-
-  // เปิดไฟล์ — รูปภาพเปิดตรง, เอกสารผ่าน Google Docs Viewer
-  const handleOpenFile = async (file: NewsFile) => {
-    try {
-      const mime = file.mime_type || '';
-      const name = (file.file_name || '').toLowerCase();
-      const isImage = mime.startsWith('image/');
-
-      let targetUrl: string;
-      if (isImage) {
-        // รูปภาพ: เปิด URL ตรงๆ
-        targetUrl = file.fileURL;
-      } else {
-        // PDF / Word / Excel / PPT: ใช้ Google Docs Viewer
-        // ต้องใช้ URL ที่ไม่มี fl_attachment เพื่อให้ viewer โหลดได้
-        const cleanUrl = file.fileURL
-          .replace('/upload/fl_attachment/', '/upload/')
-          .replace('/upload/fl_attachment,', '/upload/');
-        targetUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(cleanUrl)}&embedded=false`;
-      }
-
-      await Linking.openURL(targetUrl);
-    } catch {
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดไฟล์ได้');
+    } finally {
+      setBookmarking(false);
     }
   };
+
+  /**
+   * เปิดไฟล์ — download ลง cache แล้วเปิดด้วย expo-sharing
+   * Android จะเด้ง sheet ให้เลือกแอปเปิดเองได้
+   */
+  const handleOpenFile = useCallback(async (file: NewsFile) => {
+    const fileKey = file.file_id || file.file_name;
+    setDownloadingId(fileKey);
+
+    try {
+      const mime    = file.mime_type || '';
+      const isImage = mime.startsWith('image/');
+
+      // รูปภาพ — เปิด URL ตรงๆ ผ่าน browser
+      if (isImage) {
+        await Linking.openURL(file.fileURL);
+        setDownloadingId(null);
+        return;
+      }
+
+      // เอกสาร — download ลง cache แล้วเปิดด้วย expo-sharing
+      const ext      = getExtension(file.file_name, mime);
+      const safeName = file.file_name.replace(/[^a-zA-Z0-9ก-๛._-]/g, '_');
+      const localUri = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
+
+      console.log('⬇️ Downloading:', file.fileURL);
+      const downloadResult = await FileSystem.downloadAsync(file.fileURL, localUri);
+
+      if (downloadResult.status !== 200) {
+        throw new Error(`Download failed: HTTP ${downloadResult.status}`);
+      }
+
+      console.log('✅ Downloaded to:', downloadResult.uri);
+
+      // ตรวจว่า expo-sharing รองรับบน device นี้ไหม
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        // fallback — เปิด URL ตรงๆ ถ้า sharing ไม่รองรับ
+        await Linking.openURL(file.fileURL);
+        return;
+      }
+
+      await Sharing.shareAsync(downloadResult.uri, {
+        mimeType: mime || getMimeFromExt(ext),
+        dialogTitle: `เปิด ${file.file_name}`,
+        UTI: getUTI(mime),
+      });
+
+    } catch (err: any) {
+      console.error('❌ Open file error:', err);
+      Alert.alert(
+        'ไม่สามารถเปิดไฟล์ได้',
+        'กรุณาติดตั้งแอปสำหรับเปิดไฟล์ประเภทนี้ เช่น Adobe Acrobat, WPS Office หรือ Google Drive',
+        [
+          { text: 'ยกเลิก', style: 'cancel' },
+          {
+            text: 'เปิดใน Browser',
+            onPress: () => Linking.openURL(file.fileURL).catch(() => {}),
+          },
+        ]
+      );
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
+
+  // ──────────────────── helpers ────────────────────
+
+  function getExtension(filename: string, mime: string): string {
+    const fromName = filename.split('.').pop()?.toLowerCase() || '';
+    if (fromName) return fromName;
+    const mimeMap: Record<string, string> = {
+      'application/pdf': 'pdf',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+      'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+      'application/vnd.ms-powerpoint': 'ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    };
+    return mimeMap[mime] || '';
+  }
+
+  function getMimeFromExt(ext: string): string {
+    const extMap: Record<string, string> = {
+      pdf: 'application/pdf',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ppt: 'application/vnd.ms-powerpoint',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    };
+    return extMap[ext] || 'application/octet-stream';
+  }
+
+  function getUTI(mime: string): string {
+    const utiMap: Record<string, string> = {
+      'application/pdf': 'com.adobe.pdf',
+      'application/msword': 'com.microsoft.word.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'org.openxmlformats.wordprocessingml.document',
+      'application/vnd.ms-excel': 'com.microsoft.excel.xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'org.openxmlformats.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint': 'com.microsoft.powerpoint.ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'org.openxmlformats.presentationml.presentation',
+    };
+    return utiMap[mime] || 'public.data';
+  }
 
   const formatDate = (ts: any) => {
     if (!ts) return 'ไม่ทราบวันที่';
     try {
       const d = ts.toDate ? ts.toDate() : new Date(ts);
-      return d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return d.toLocaleDateString('th-TH', {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
     } catch { return 'ไม่ทราบวันที่'; }
   };
 
@@ -133,6 +274,13 @@ export default function NewsDetailScreen() {
     return `${(b / 1048576).toFixed(1)} MB`;
   };
 
+  // ไฟล์ที่จะแสดง: ใช้จาก backend ถ้ามี ถ้าไม่มีใช้จาก news.files
+  const displayFiles: NewsFile[] = newsFiles.length > 0
+    ? newsFiles
+    : (news?.files || []);
+
+  // ─────────────────── Render ───────────────────
+
   if (loading) return (
     <View style={styles.safe}>
       <View style={styles.centered}>
@@ -156,8 +304,8 @@ export default function NewsDetailScreen() {
     </View>
   );
 
-  const hasFiles = news.files && news.files.length > 0;
-  const hasLinks = news.links && news.links.length > 0;
+  const hasFiles   = displayFiles.length > 0;
+  const hasLinks   = news.links && news.links.length > 0;
   const isGroupNews = news.group_id && news.group_id !== 'all';
 
   return (
@@ -177,17 +325,23 @@ export default function NewsDetailScreen() {
         ),
       }} />
 
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 48 }}>
-
+      <ScrollView
+        style={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 48 }}
+      >
         {/* ═══ HERO ═══ */}
         <View style={styles.heroCard}>
-          {/* Badges */}
           <View style={styles.badgeRow}>
             <View style={styles.catBadge}>
               <Text style={styles.catText}>{news.category || 'ทั่วไป'}</Text>
             </View>
             <View style={[styles.audBadge, isGroupNews ? styles.groupBadge : styles.allBadge]}>
-              <Ionicons name={isGroupNews ? 'people' : 'megaphone'} size={11} color={isGroupNews ? '#6D28D9' : '#059669'} />
+              <Ionicons
+                name={isGroupNews ? 'people' : 'megaphone'}
+                size={11}
+                color={isGroupNews ? '#6D28D9' : '#059669'}
+              />
               <Text style={[styles.audText, { color: isGroupNews ? '#6D28D9' : '#059669' }]}>
                 {isGroupNews ? 'กลุ่มเฉพาะ' : 'ทุกคน'}
               </Text>
@@ -195,14 +349,13 @@ export default function NewsDetailScreen() {
             {hasFiles && (
               <View style={styles.attBadge}>
                 <Ionicons name="attach" size={11} color="#92400E" />
-                <Text style={styles.attText}>{news.files!.length} ไฟล์</Text>
+                <Text style={styles.attText}>{displayFiles.length} ไฟล์</Text>
               </View>
             )}
           </View>
 
           <Text style={styles.heroTitle}>{news.title}</Text>
 
-          {/* Meta strip */}
           <View style={styles.metaStrip}>
             <View style={styles.metaChip}>
               <Ionicons name="time-outline" size={14} color="#1B8B6A" />
@@ -239,7 +392,11 @@ export default function NewsDetailScreen() {
               <TouchableOpacity
                 key={i}
                 style={[styles.linkRow, i < news.links!.length - 1 && styles.linkRowBorder]}
-                onPress={() => Linking.openURL(link.url).catch(() => Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดลิงก์นี้ได้'))}
+                onPress={() =>
+                  Linking.openURL(link.url).catch(() =>
+                    Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเปิดลิงก์นี้ได้')
+                  )
+                }
                 activeOpacity={0.75}
               >
                 <View style={styles.linkIconBox}>
@@ -256,43 +413,75 @@ export default function NewsDetailScreen() {
         )}
 
         {/* ═══ FILES ═══ */}
-        {hasFiles && (
+        {(hasFiles || filesLoading) && (
           <View style={styles.section}>
             <View style={styles.sectionHead}>
               <View style={styles.sectionBar} />
               <Text style={styles.sectionLabel}>ไฟล์แนบ</Text>
-              <View style={styles.countPill}>
-                <Text style={styles.countText}>{news.files!.length}</Text>
-              </View>
+              {!filesLoading && (
+                <View style={styles.countPill}>
+                  <Text style={styles.countText}>{displayFiles.length}</Text>
+                </View>
+              )}
             </View>
 
-            {news.files!.map((file, i) => {
-              const fc = getFileColor(file.mime_type, file.file_name);
-              return (
-                <View key={i} style={[styles.fileRow, i < news.files!.length - 1 && styles.fileRowBorder]}>
-                  {/* Icon */}
-                  <View style={[styles.fileIconBox, { backgroundColor: fc.bg }]}>
-                    <Ionicons name={getFileIcon(file.mime_type, file.file_name)} size={22} color={fc.icon} />
-                  </View>
+            {filesLoading ? (
+              <View style={styles.filesLoading}>
+                <ActivityIndicator size="small" color="#1B8B6A" />
+                <Text style={styles.filesLoadingText}>กำลังโหลดไฟล์...</Text>
+              </View>
+            ) : (
+              displayFiles.map((file, i) => {
+                const fc      = getFileColor(file.mime_type, file.file_name);
+                const fileKey = file.file_id || file.file_name;
+                const isDownloading = downloadingId === fileKey;
 
-                  {/* Name + size */}
-                  <View style={styles.fileInfo}>
-                    <Text style={styles.fileName} numberOfLines={2}>{file.file_name}</Text>
-                    {file.file_size ? <Text style={styles.fileSize}>{fmtSize(file.file_size)}</Text> : null}
-                  </View>
-
-                  {/* Action — เปิดไฟล์ */}
-                  <TouchableOpacity
-                    style={styles.fileOpenBtn}
-                    onPress={() => handleOpenFile(file)}
-                    activeOpacity={0.8}
+                return (
+                  <View
+                    key={fileKey}
+                    style={[styles.fileRow, i < displayFiles.length - 1 && styles.fileRowBorder]}
                   >
-                    <Ionicons name="open-outline" size={16} color="#fff" />
-                    <Text style={styles.fileOpenBtnText}>เปิด</Text>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+                    {/* ไอคอนประเภทไฟล์ */}
+                    <View style={[styles.fileIconBox, { backgroundColor: fc.bg }]}>
+                      <Ionicons
+                        name={getFileIcon(file.mime_type, file.file_name)}
+                        size={22}
+                        color={fc.icon}
+                      />
+                    </View>
+
+                    {/* ชื่อไฟล์ + ขนาด */}
+                    <View style={styles.fileInfo}>
+                      <Text style={styles.fileName} numberOfLines={2}>{file.file_name}</Text>
+                      {file.file_size
+                        ? <Text style={styles.fileSize}>{fmtSize(file.file_size)}</Text>
+                        : null
+                      }
+                    </View>
+
+                    {/* ปุ่มเปิดไฟล์ */}
+                    <TouchableOpacity
+                      style={[styles.fileOpenBtn, isDownloading && styles.fileOpenBtnLoading]}
+                      onPress={() => handleOpenFile(file)}
+                      disabled={isDownloading}
+                      activeOpacity={0.8}
+                    >
+                      {isDownloading ? (
+                        <>
+                          <ActivityIndicator size="small" color="#fff" />
+                          <Text style={styles.fileOpenBtnText}>โหลด...</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="open-outline" size={16} color="#fff" />
+                          <Text style={styles.fileOpenBtnText}>เปิด</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
           </View>
         )}
 
@@ -306,96 +495,91 @@ export default function NewsDetailScreen() {
           >
             {bookmarking
               ? <ActivityIndicator size="small" color={isBookmarked ? '#fff' : '#1B8B6A'} />
-              : <Ionicons name={isBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color={isBookmarked ? '#fff' : '#1B8B6A'} />
+              : <Ionicons
+                  name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                  size={20}
+                  color={isBookmarked ? '#fff' : '#1B8B6A'}
+                />
             }
             <Text style={[styles.bookmarkBtnText, isBookmarked && { color: '#fff' }]}>
               {bookmarking ? 'กำลังบันทึก...' : isBookmarked ? 'บันทึกแล้ว ✓' : 'บันทึกข่าวนี้'}
             </Text>
           </TouchableOpacity>
         </View>
-
       </ScrollView>
     </View>
   );
 }
 
+// ─────────────────── Styles ───────────────────
 const styles = StyleSheet.create({
   safe:    { flex: 1, backgroundColor: '#F2F4F7' },
   scroll:  { flex: 1 },
   centered:{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, backgroundColor: '#F2F4F7' },
-  loadingText: { fontSize: 14, color: '#aaa' },
+  loadingText:   { fontSize: 14, color: '#aaa' },
   errorIconWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' },
   errorText:     { fontSize: 16, color: '#888', fontWeight: '600' },
   backPill:      { backgroundColor: '#1B8B6A', paddingHorizontal: 24, paddingVertical: 11, borderRadius: 24 },
   backPillText:  { color: '#fff', fontWeight: '700' },
 
-  // hero
   heroCard: {
     backgroundColor: '#fff', padding: 20, marginBottom: 10,
     borderBottomLeftRadius: 20, borderBottomRightRadius: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
   },
-  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
-  catBadge: { backgroundColor: '#E6F4F0', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
-  catText:  { fontSize: 12, color: '#1B8B6A', fontWeight: '700' },
-  audBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+  badgeRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  catBadge:   { backgroundColor: '#E6F4F0', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+  catText:    { fontSize: 12, color: '#1B8B6A', fontWeight: '700' },
+  audBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   groupBadge: { backgroundColor: '#EDE9FE' },
   allBadge:   { backgroundColor: '#ECFDF5' },
   audText:    { fontSize: 12, fontWeight: '600' },
   attBadge:   { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FEF3C7', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   attText:    { fontSize: 12, color: '#92400E', fontWeight: '600' },
-
-  heroTitle: {
-    fontSize: 21, fontWeight: '800', color: '#0F172A',
-    lineHeight: 30, letterSpacing: -0.3, marginBottom: 16,
-  },
-
-  metaStrip: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  metaChip:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  heroTitle:  { fontSize: 21, fontWeight: '800', color: '#0F172A', lineHeight: 30, letterSpacing: -0.3, marginBottom: 16 },
+  metaStrip:  { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  metaChip:   { flexDirection: 'row', alignItems: 'center', gap: 5 },
   metaChipText: { fontSize: 12, color: '#555', fontWeight: '500' },
-  metaDot:   { width: 4, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB' },
+  metaDot:    { width: 4, height: 4, borderRadius: 2, backgroundColor: '#D1D5DB' },
 
-  // sections
   section: {
     backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 10,
     borderRadius: 16, padding: 18,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04, shadowRadius: 4, elevation: 2,
   },
-  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
-  sectionBar:  { width: 4, height: 18, borderRadius: 2, backgroundColor: '#1B8B6A' },
-  sectionLabel:{ fontSize: 14, fontWeight: '700', color: '#0F172A', flex: 1 },
-  countPill:   { backgroundColor: '#1B8B6A', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
-  countText:   { color: '#fff', fontSize: 11, fontWeight: '700' },
+  sectionHead:  { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  sectionBar:   { width: 4, height: 18, borderRadius: 2, backgroundColor: '#1B8B6A' },
+  sectionLabel: { fontSize: 14, fontWeight: '700', color: '#0F172A', flex: 1 },
+  countPill:    { backgroundColor: '#1B8B6A', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
+  countText:    { color: '#fff', fontSize: 11, fontWeight: '700' },
+  bodyText:     { fontSize: 15, color: '#374151', lineHeight: 27, letterSpacing: 0.1 },
 
-  bodyText: { fontSize: 15, color: '#374151', lineHeight: 27, letterSpacing: 0.1 },
+  filesLoading:     { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
+  filesLoadingText: { fontSize: 14, color: '#888' },
 
-  // files
-  fileRow: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12,
-  },
+  fileRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
   fileRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  fileIconBox: { width: 46, height: 46, borderRadius: 12, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  fileInfo:    { flex: 1 },
-  fileName:    { fontSize: 13, fontWeight: '600', color: '#111', lineHeight: 18, marginBottom: 2 },
-  fileSize:    { fontSize: 11, color: '#bbb' },
+  fileIconBox:   { width: 46, height: 46, borderRadius: 12, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  fileInfo:      { flex: 1 },
+  fileName:      { fontSize: 13, fontWeight: '600', color: '#111', lineHeight: 18, marginBottom: 2 },
+  fileSize:      { fontSize: 11, color: '#bbb' },
   fileOpenBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0,
     backgroundColor: '#1B8B6A', paddingHorizontal: 14, paddingVertical: 9,
-    borderRadius: 10,
+    borderRadius: 10, minWidth: 72, justifyContent: 'center',
   },
-  fileOpenBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  fileOpenBtnLoading: { backgroundColor: '#8BC6B5' },
+  fileOpenBtnText:    { color: '#fff', fontSize: 13, fontWeight: '700' },
 
-  // links
-  linkRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
+  linkRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12 },
   linkRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  linkIconBox: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#E6F4F0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  linkInfo: { flex: 1 },
-  linkLabel: { fontSize: 13, fontWeight: '700', color: '#111', marginBottom: 2 },
-  linkUrl: { fontSize: 11, color: '#1B8B6A' },
+  linkIconBox:   { width: 40, height: 40, borderRadius: 10, backgroundColor: '#E6F4F0', justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+  linkInfo:      { flex: 1 },
+  linkLabel:     { fontSize: 13, fontWeight: '700', color: '#111', marginBottom: 2 },
+  linkUrl:       { fontSize: 11, color: '#1B8B6A' },
 
-  // bookmark
   bookmarkWrap: { paddingHorizontal: 20, paddingTop: 4 },
   bookmarkBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

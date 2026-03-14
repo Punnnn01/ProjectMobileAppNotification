@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import * as Notifications from 'expo-notifications';
+import { Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
 import { db } from '@/config/firebase';
@@ -45,8 +46,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
 
       console.log('🔔 Starting notification registration...');
-      console.log('   User ID:', userId);
-      console.log('   Role:', userProfile.role?.role_id);
+
+      // ตรวจสถานะ permission ปัจจุบันทุกครั้ง
+      const { status } = await Notifications.getPermissionsAsync();
+      console.log('   Permission status:', status);
+
+      if (status === 'denied') {
+        // ถูกปฏิเสธไปแล้ว — Android ไม่ให้ถามซ้ำ ต้องให้ผู้ใช้ไปเปิดเอง
+        Alert.alert(
+          '🔔 เปิดการแจ้งเตือน',
+          'แอปนี้ต้องการการแจ้งเตือนเพื่อรับข่าวสารจากมหาวิทยาลัย\nกรุณาเปิดในการตั้งค่าเครื่อง',
+          [
+            { text: 'ไม่ใช่ตอนนี้', style: 'cancel' },
+            { text: 'เปิดการตั้งค่า', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
 
       const token = await registerForPushNotificationsAsync();
 
