@@ -2,6 +2,7 @@
 import { onAuthStateChanged } from "firebase/auth";
 import { useEffect, useState } from "preact/hooks";
 import AddNews from "./AddNews";
+import ChatbotKnowledge from "./ChatbotKnowledge";
 import { auth } from "./firebase";
 import GroupNotification from "./GroupNotification";
 import Login, { type LoggedInUser } from "./Login";
@@ -9,7 +10,6 @@ import NewsList from "./NewsList";
 import { Link, Route, RouterProvider } from "./router";
 import "./style.css";
 import TeacherList from "./TeacherList";
-import ChatbotKnowledge from "./ChatbotKnowledge";
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<LoggedInUser | null>(null);
@@ -33,6 +33,25 @@ export default function App() {
     setCurrentUser(null);
     location.hash = "#/";
   }
+
+  // ถามสิทธิ์แสดง Notification (จะใช้บน Android/Chrome ด้วย)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    if (!('Notification' in window)) return;
+
+    const asked = localStorage.getItem('notiPermissionAsked');
+    if (asked === '1') return;
+
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().finally(() => {
+        localStorage.setItem('notiPermissionAsked', '1');
+      });
+    } else {
+      // บันทึกว่าถามแล้ว (อนุญาตหรือปฏิเสธ)
+      localStorage.setItem('notiPermissionAsked', '1');
+    }
+  }, [currentUser]);
 
   if (!authChecked) {
     return (

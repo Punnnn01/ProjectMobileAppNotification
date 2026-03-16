@@ -122,7 +122,6 @@ const AddExamSchedule = (): JSX.Element => {
   const [columns, setColumns] = useState<string[]>([]);
   const [groupedData, setGroupedData] = useState<GroupedExam[]>([]);
   const [fileName, setFileName] = useState<string>('');
-  const [fileType, setFileType] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -134,7 +133,6 @@ const AddExamSchedule = (): JSX.Element => {
     if (!file) return;
 
     setFileName(file.name);
-    setFileType(file.type);
     setUploading(true);
     setError(null);
     setSuccess(null);
@@ -258,7 +256,6 @@ const AddExamSchedule = (): JSX.Element => {
     setColumns([]);
     setGroupedData([]);
     setFileName('');
-    setFileType(null);
     if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
       setPdfUrl(null);

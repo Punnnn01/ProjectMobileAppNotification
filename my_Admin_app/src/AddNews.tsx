@@ -5,8 +5,6 @@ import * as XLSX from "xlsx";
 import type { LoggedInUser } from "./Login";
 import "./style.css";
 
-type SubmitResult = { ok: true; id?: string } | { ok: false; message: string };
-
 const BACKEND_URL = "https://projectmobileappnotification-production.up.railway.app";
 
 interface Group {

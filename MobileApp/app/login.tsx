@@ -1,11 +1,15 @@
 import { useAuth } from '@/context/AuthContext';
+import { registerForPushNotificationsAsync } from '@/services/notificationService';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Link, router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
   SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+
+const ASKED_NOTIFY_PERM_KEY = '@app:asked_notification_permission';
 
 export default function LoginScreen() {
   const [email, setEmail]       = useState('');
@@ -13,6 +17,22 @@ export default function LoginScreen() {
   const [loading, setLoading]   = useState(false);
   const [showPass, setShowPass] = useState(false);
   const { login } = useAuth();
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    (async () => {
+      try {
+        const alreadyAsked = await AsyncStorage.getItem(ASKED_NOTIFY_PERM_KEY);
+        if (alreadyAsked) return;
+
+        await registerForPushNotificationsAsync();
+        await AsyncStorage.setItem(ASKED_NOTIFY_PERM_KEY, '1');
+      } catch (error) {
+        console.warn('Failed to request notification permission:', error);
+      }
+    })();
+  }, []);
 
   const handleLogin = async () => {
     if (!email || !password) { Alert.alert('แจ้งเตือน', 'กรุณากรอก Email และ Password'); return; }
