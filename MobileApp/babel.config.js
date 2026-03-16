@@ -3,8 +3,7 @@ module.exports = function(api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      ['module-resolver', { root: ['./'], alias: { '@': './' } }],
-      'react-native-reanimated/plugin',
+      'react-native-reanimated/plugin', // ใส่แค่นี้พอ บรรทัดเดียว
     ],
   };
 };
