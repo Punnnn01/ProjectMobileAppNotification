@@ -107,30 +107,68 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     let allTokens: string[] = [];
     if (student_id_target) {
       // โหมด personal — ส่งให้คนเดียว
-      const studentDoc = await db.collection('Student').doc(student_id_target).get();
-      const token = studentDoc.data()?.pushToken;
-      if (token) allTokens.push(token);
-      console.log(`👤 Personal mode → student: ${student_id_target}, token: ${token ? 'found' : 'not found'}`);
+      // ลอง document ID ก่อน
+      const studentDocById = await db.collection('Student').doc(student_id_target).get();
+      if (studentDocById.exists) {
+        const token = studentDocById.data()?.pushToken;
+        if (token) allTokens.push(token);
+        console.log(`👤 Personal (by docId) → token: ${token ? 'found' : 'not found'}`);
+      } else {
+        // fallback: ค้นหาจาก student_id field
+        const snapByField = await db.collection('Student')
+          .where('student_id', '==', student_id_target).get();
+        if (!snapByField.empty) {
+          const token = snapByField.docs[0].data()?.pushToken;
+          if (token) allTokens.push(token);
+          console.log(`👤 Personal (by field) → token: ${token ? 'found' : 'not found'}`);
+        } else {
+          console.log(`⚠️ Personal → student not found: ${student_id_target}`);
+        }
+      }
     } else if (!group_id || group_id === 'all') {
-      // โหมด all — ส่งทุกคน
+      // โหมด all — ส่งทุกคนที่มี pushToken (ไม่ filter notificationEnabled)
       const [studentsSnap, teachersSnap] = await Promise.all([
-        db.collection('Student').where('notificationEnabled', '==', true).get(),
-        db.collection('Teacher').where('notificationEnabled', '==', true).get()
+        db.collection('Student').get(),
+        db.collection('Teacher').get()
       ]);
       allTokens = [...studentsSnap.docs, ...teachersSnap.docs]
         .map(doc => doc.data().pushToken)
-        .filter((t): t is string => !!t);
+        .filter((t): t is string => !!t && t.length > 0);
       console.log(`📢 All mode → ${allTokens.length} tokens`);
     } else {
       // โหมด group — ส่งเฉพาะกลุ่ม
       const groupDoc = await db.collection('Group_Notification').doc(group_id).get();
       const studentIds: string[] = groupDoc.exists ? (groupDoc.data()?.student_id || []) : [];
       console.log(`👥 Group mode → group: ${group_id}, members: ${studentIds.length}`);
+
+      // student_id array ใน Group_Notification อาจเป็น document ID หรือ student_id field
+      // ลอง query ทั้งสองแบบ
       for (let i = 0; i < studentIds.length; i += 10) {
         const chunk = studentIds.slice(i, i + 10);
-        const snap = await db.collection('Student')
+        // แบบที่ 1: student_id เป็น Firestore document ID
+        const snapById = await db.collection('Student')
           .where(admin.firestore.FieldPath.documentId(), 'in', chunk).get();
-        snap.docs.forEach(doc => {
+        snapById.docs.forEach(doc => {
+          const token = doc.data().pushToken;
+          if (token) allTokens.push(token);
+        });
+        // แบบที่ 2: student_id เป็น field (fallback)
+        if (snapById.empty) {
+          const snapByField = await db.collection('Student')
+            .where('student_id', 'in', chunk).get();
+          snapByField.docs.forEach(doc => {
+            const token = doc.data().pushToken;
+            if (token) allTokens.push(token);
+          });
+        }
+      }
+
+      // ถ้าไม่เจอเลย ลอง query จาก group_ids field ใน Student document
+      if (allTokens.length === 0) {
+        console.log(`⚠️ Fallback: query Student.group_ids contains ${group_id}`);
+        const snapByGroupIds = await db.collection('Student')
+          .where('group_ids', 'array-contains', group_id).get();
+        snapByGroupIds.docs.forEach(doc => {
           const token = doc.data().pushToken;
           if (token) allTokens.push(token);
         });
