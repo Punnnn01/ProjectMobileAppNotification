@@ -1,4 +1,3 @@
-// UPDATED: Fixed header overlap, chat inside newsCard, keyboard fix, modal bug fix
 import { db } from "@/config/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
@@ -60,18 +59,6 @@ interface ChatMessage { role: "user" | "bot"; text: string; }
 interface ApiHistory { role: "user" | "model"; parts: { text: string }[]; }
 interface NewsItem { id: string; title: string; content?: string; time?: any; group_id?: string; }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
-const MenuButton = React.memo(({ icon, label, onPress }: {
-  icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void;
-}) => (
-  <TouchableOpacity style={styles.menuItem} onPress={onPress} activeOpacity={0.75}>
-    <View style={styles.menuIcon}>
-      <Ionicons name={icon} size={26} color="#fff" />
-    </View>
-    <Text style={styles.menuText}>{label}</Text>
-  </TouchableOpacity>
-));
-
 const NewsItemRow = React.memo(({ item, isBookmarked, onPress, onToggleBookmark }: {
   item: NewsItem; isBookmarked: boolean;
   onPress: (id: string) => void; onToggleBookmark: (id: string, state: boolean) => void;
@@ -92,10 +79,11 @@ const NewsItemRow = React.memo(({ item, isBookmarked, onPress, onToggleBookmark 
   </View>
 ));
 
-// ─── Main Screen ───────────────────────────────────────────────────────────────
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, userId, userProfile, logout } = useAuth();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut]       = useState(false);
 
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -111,41 +99,35 @@ export default function HomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const newsUnsubRef = useRef<(() => void) | null>(null);
 
-  // Logout state
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
   const firstName = useMemo(() => userProfile?.personal_info?.firstName || "User", [userProfile]);
+  const bookmarkUnsubRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => { if (user && userId) loadBookmarks(); }, [user, userId]);
-
-  const loadBookmarks = async () => {
-    try {
-      const col = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
-      const snap = await getDoc(doc(db, col, userId!));
+  // onSnapshot ฟัง bookmarks array ของ user แบบ realtime
+  // ทำให้ไอคอนบุ๊คมาร์คในรายการข่าวอัปเดตทันทีเมื่อกดบันทึก/ยกเลิกจากหน้าอื่น
+  useEffect(() => {
+    if (!user || !userId) return;
+    const col     = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+    const userRef = doc(db, col, userId);
+    bookmarkUnsubRef.current = onSnapshot(userRef, (snap) => {
       if (snap.exists()) setBookmarks(snap.data()?.bookmarks || []);
-    } catch {}
-  };
+    });
+    return () => {
+      bookmarkUnsubRef.current?.();
+      bookmarkUnsubRef.current = null;
+    };
+  }, [user, userId, userProfile]);
 
-  // ── Realtime news listener ──────────────────────────────────────────
-  // useFocusEffect: เริ่ม listener ทุกครั้งที่กลับมาหน้านี้,
-  // onSnapshot: Firestore push ข้อมูลให้ทันทีเมื่อมีข่าวใหม่ = ไม่ต้องรอ reload
   useFocusEffect(
     useCallback(() => {
-      if (!userId) {
-        setLoading(false);
-        return;
-      }
-
-      let active = true; // guard ป้องกัน setState หลัง cleanup
-      const col  = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+      if (!userId) { setLoading(false); return; }
+      let active = true;
+      const col = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
 
       getDoc(doc(db, col, userId))
         .then(userDoc => {
           if (!active) return;
           const userGroupIds: string[] = userDoc.data()?.group_ids || [];
           const q = query(collection(db, "News"), orderBy("time", "desc"));
-
           newsUnsubRef.current = onSnapshot(q, snap => {
             if (!active) return;
             const allNews = snap.docs.map(d => ({
@@ -182,10 +164,10 @@ export default function HomeScreen() {
       const ref = doc(db, col, userId);
       if (current) {
         await updateDoc(ref, { bookmarks: arrayRemove(newsId) });
-        setBookmarks((prev) => prev.filter((id) => id !== newsId));
+        setBookmarks(prev => prev.filter(id => id !== newsId));
       } else {
         await updateDoc(ref, { bookmarks: arrayUnion(newsId) });
-        setBookmarks((prev) => [...prev, newsId]);
+        setBookmarks(prev => [...prev, newsId]);
       }
     } catch { Alert.alert("ข้อผิดพลาด", "ไม่สามารถบันทึกข่าวได้"); }
   };
@@ -206,7 +188,7 @@ export default function HomeScreen() {
       } else {
         const msgs: ChatMessage[] = [];
         const hist: ApiHistory[] = [];
-        snap.docs.forEach((d) => {
+        snap.docs.forEach(d => {
           const { role, text } = d.data();
           msgs.push({ role, text });
           hist.push({ role: role === "user" ? "user" : "model", parts: [{ text }] });
@@ -233,7 +215,7 @@ export default function HomeScreen() {
       try {
         const snap = await getDocs(msgCollection());
         const batch = writeBatch(db);
-        snap.docs.forEach((d) => batch.delete(d.ref));
+        snap.docs.forEach(d => batch.delete(d.ref));
         await batch.commit();
       } catch {}
       setChatMessages([{ role: "bot", text: WELCOME_MSG }]);
@@ -249,7 +231,7 @@ export default function HomeScreen() {
     const trimmed = text.trim();
     if (!trimmed || isBotTyping) return;
     setChatInput("");
-    setChatMessages((prev) => [...prev, { role: "user", text: trimmed }]);
+    setChatMessages(prev => [...prev, { role: "user", text: trimmed }]);
     setIsBotTyping(true);
     saveChatMessage("user", trimmed);
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -262,51 +244,34 @@ export default function HomeScreen() {
       if (!res.ok) throw new Error();
       const { message } = await res.json();
       const botText = message || "ขออภัย ไม่สามารถตอบได้ในขณะนี้ครับ";
-      setChatMessages((prev) => [...prev, { role: "bot", text: botText }]);
-      setApiHistory((prev) => [
+      setChatMessages(prev => [...prev, { role: "bot", text: botText }]);
+      setApiHistory(prev => [
         ...prev,
         { role: "user", parts: [{ text: trimmed }] },
         { role: "model", parts: [{ text: botText }] },
       ]);
       saveChatMessage("bot", botText);
     } catch {
-      setChatMessages((prev) => [...prev, { role: "bot", text: "ติดต่อ Server ไม่ได้ กรุณาลองใหม่ครับ" }]);
+      setChatMessages(prev => [...prev, { role: "bot", text: "ติดต่อ Server ไม่ได้ กรุณาลองใหม่ครับ" }]);
     } finally {
       setIsBotTyping(false);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   }, [isBotTyping, apiHistory, saveChatMessage]);
 
-  // ข้อ 5: แก้ bug modal ขึ้นลงถี่ๆ — ใช้ callback แยก ไม่ inline
   const handleOpenChat = useCallback(() => {
     setShowChatModal(true);
     loadChatHistory();
   }, [loadChatHistory]);
 
-  const handleCloseChat = useCallback(() => {
-    setShowChatModal(false);
-  }, []);
-
-  const handleConfirmLogout = async () => {
-    setIsLoggingOut(true);
-    try {
-      await logout();
-      setShowLogoutModal(false);
-      router.replace("/login");
-    } catch { alert("ไม่สามารถออกจากระบบได้"); }
-    finally { setIsLoggingOut(false); }
-  };
-
+  const handleCloseChat = useCallback(() => setShowChatModal(false), []);
   const handleNewsDetail = useCallback((id: string) => router.push(`/news/${id}` as any), []);
-  const handleViewAllNews = useCallback(() => router.push("/news-list" as any), []);
-  const navigateTo = useCallback((path: string) => router.push(path as any), []);
+  const handleViewAllNews = useCallback(() => router.push("/(tabs)/news-list" as any), []);
 
   return (
-    // ข้อ 2: ใช้ insets.top แทน SafeAreaView เพื่อกัน status bar ซ้อนทับ
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-
+    <View style={styles.root}>
       {/* ── Header ── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: 10 }]}>
         <View>
           <Text style={styles.headerGreeting}>ยินดีต้อนรับ</Text>
           <Text style={styles.headerName}>{firstName}</Text>
@@ -316,16 +281,9 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ── Scrollable body ── */}
+      {/* ── Body ── */}
       <View style={styles.body}>
-        {/* Menu Card */}
-        <View style={styles.menuCard}>
-          <MenuButton icon="person-outline" label="โปรไฟล์" onPress={() => navigateTo("/profile")} />
-          <MenuButton icon="calendar-outline" label="ตารางเรียน" onPress={() => navigateTo("/schedule")} />
-          <MenuButton icon="bookmark-outline" label="บันทึก" onPress={() => navigateTo("/bookmark")} />
-        </View>
-
-        {/* News Card ยืดเต็มจอ + ปุ่มแชทบอทอยู่มุมล่างซ้ายของ card */}
+        {/* News Card */}
         <View style={styles.newsCard}>
           <View style={styles.newsSectionHeader}>
             <View style={styles.newsTitleRow}>
@@ -338,47 +296,78 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* content อยู่ใน flex:1 wrapper เพื่อให้ปุ่ม FAB วางด้านล่างซ้ายได้ถูกตำแหน่ง */}
           <View style={{ flex: 1 }}>
-          {loading ? (
-            <View style={styles.centered}>
-              <ActivityIndicator size="small" color="#1B8B6A" />
-            </View>
-          ) : (
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 56 }}>
-              {news.length > 0 ? (
-                news.map((item) => (
-                  <NewsItemRow
-                    key={item.id}
-                    item={item}
-                    isBookmarked={bookmarks.includes(item.id)}
-                    onPress={handleNewsDetail}
-                    onToggleBookmark={toggleBookmark}
-                  />
-                ))
-              ) : (
-                <View style={styles.centered}>
-                  <Ionicons name="newspaper-outline" size={36} color="#ccc" />
-                  <Text style={styles.noNews}>ยังไม่มีข่าวสาร</Text>
-                </View>
-              )}
-            </ScrollView>
-          )}
+            {loading ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="small" color="#1B8B6A" />
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 56 }}>
+                {news.length > 0 ? (
+                  news.map(item => (
+                    <NewsItemRow
+                      key={item.id}
+                      item={item}
+                      isBookmarked={bookmarks.includes(item.id)}
+                      onPress={handleNewsDetail}
+                      onToggleBookmark={toggleBookmark}
+                    />
+                  ))
+                ) : (
+                  <View style={styles.centered}>
+                    <Ionicons name="newspaper-outline" size={36} color="#ccc" />
+                    <Text style={styles.noNews}>ยังไม่มีข่าวสาร</Text>
+                  </View>
+                )}
+              </ScrollView>
+            )}
 
-          {/* ปุ่มแชทบอท — position absolute มุมล่างซ้ายของ card */}
-          <TouchableOpacity
-            style={styles.chatFabInCard}
-            onPress={handleOpenChat}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="chatbubble-ellipses-outline" size={22} color="#fff" />
-          </TouchableOpacity>
-
-          </View>{/* end flex:1 wrapper */}
+            {/* ปุ่มแชทบอท — position absolute มุมล่างซ้ายของ card */}
+            <TouchableOpacity
+              style={styles.chatFabInCard}
+              onPress={handleOpenChat}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
-      {/* ── ข้อ 4+5: Chatbot Modal — KeyboardAvoidingView ครอบทั้ง Modal ── */}
+      {/* ── Logout Modal ── */}
+      <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
+        <View style={styles.logoutOverlay}>
+          <View style={styles.logoutBox}>
+            <View style={styles.logoutIconWrap}>
+              <Ionicons name="log-out-outline" size={44} color="#e74c3c" />
+            </View>
+            <Text style={styles.logoutTitle}>ออกจากระบบ</Text>
+            <Text style={styles.logoutMsg}>คุณต้องการออกจากระบบใช่หรือไม่?</Text>
+            <View style={styles.logoutBtns}>
+              <TouchableOpacity style={[styles.logoutBtnItem, styles.cancelLogout]} onPress={() => setShowLogoutModal(false)} disabled={isLoggingOut}>
+                <Text style={styles.cancelLogoutText}>ยกเลิก</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.logoutBtnItem, styles.confirmLogout]}
+                onPress={async () => {
+                  setIsLoggingOut(true);
+                  try { await logout(); router.replace('/login'); }
+                  catch { Alert.alert('ไม่สามารถออกจากระบบได้'); }
+                  finally { setIsLoggingOut(false); }
+                }}
+                disabled={isLoggingOut}
+              >
+                {isLoggingOut
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.confirmLogoutText}>ออกจากระบบ</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Chatbot Modal ── */}
       <Modal
         visible={showChatModal}
         transparent
@@ -491,32 +480,10 @@ export default function HomeScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-
-      {/* ── Logout Modal ── */}
-      <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={styles.modalIcon}>
-              <Ionicons name="log-out-outline" size={44} color="#e74c3c" />
-            </View>
-            <Text style={styles.modalTitle}>ออกจากระบบ</Text>
-            <Text style={styles.modalMsg}>คุณต้องการออกจากระบบใช่หรือไม่?</Text>
-            <View style={styles.modalBtns}>
-              <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setShowLogoutModal(false)} disabled={isLoggingOut}>
-                <Text style={styles.cancelBtnText}>ยกเลิก</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.confirmBtn]} onPress={handleConfirmLogout} disabled={isLoggingOut}>
-                {isLoggingOut ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.confirmBtnText}>ออกจากระบบ</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#1B8B6A" },
   body: { flex: 1, backgroundColor: "#F2F4F7" },
@@ -526,37 +493,23 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: "#1B8B6A",
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 24,
+    paddingHorizontal: 20, paddingBottom: 24,
   },
   headerGreeting: { color: "rgba(255,255,255,0.75)", fontSize: 13, marginBottom: 2 },
   headerName: { color: "#fff", fontSize: 22, fontWeight: "700" },
   logoutBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
 
-  menuCard: {
-    flexDirection: "row", justifyContent: "space-evenly",
-    backgroundColor: "#fff", marginHorizontal: 16, marginTop: -16,
-    borderRadius: 18, paddingVertical: 20,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 5,
-  },
-  menuItem: { alignItems: "center", gap: 8 },
-  menuIcon: { width: 54, height: 54, borderRadius: 15, backgroundColor: "#1B8B6A", justifyContent: "center", alignItems: "center" },
-  menuText: { fontSize: 12, color: "#444", fontWeight: "500" },
-
-  // ข้อ 3: newsCard ยืดเต็มพื้นที่ที่เหลือ
-  newsCard: {
-    flex: 1,
-    backgroundColor: "#fff", marginHorizontal: 16, marginTop: 14, marginBottom: 16,
-    borderRadius: 18, padding: 16,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
-  },
-  newsSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  newsTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  newsTitleBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: "#1B8B6A" },
-  newsSectionTitle: { fontSize: 16, fontWeight: "700", color: "#111" },
-  viewAllButton: { flexDirection: "row", alignItems: "center", gap: 2 },
-  viewAllText: { color: "#1B8B6A", fontSize: 13, fontWeight: "600" },
-
-  // ปุ่มแชทบอท — position absolute มุมล่างซ้ายของ card
+  logoutOverlay:  { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 24 },
+  logoutBox:      { backgroundColor: "#fff", borderRadius: 20, padding: 28, width: "100%", maxWidth: 360, alignItems: "center" },
+  logoutIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#FEE2E2", justifyContent: "center", alignItems: "center", marginBottom: 16 },
+  logoutTitle:    { fontSize: 20, fontWeight: "700", color: "#111", marginBottom: 8 },
+  logoutMsg:      { fontSize: 15, color: "#666", textAlign: "center", lineHeight: 22, marginBottom: 24 },
+  logoutBtns:     { flexDirection: "row", gap: 12, width: "100%" },
+  logoutBtnItem:  { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cancelLogout:     { backgroundColor: "#F3F4F6" },
+  cancelLogoutText: { color: "#555", fontSize: 15, fontWeight: "600" },
+  confirmLogout:     { backgroundColor: "#EF4444" },
+  confirmLogoutText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   chatFabInCard: {
     position: "absolute",
     bottom: 14,
@@ -574,6 +527,19 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 
+  newsCard: {
+    flex: 1,
+    backgroundColor: "#fff", marginHorizontal: 16, marginTop: -16, marginBottom: 16,
+    borderRadius: 18, padding: 16,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
+  },
+  newsSectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  newsTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  newsTitleBar: { width: 4, height: 18, borderRadius: 2, backgroundColor: "#1B8B6A" },
+  newsSectionTitle: { fontSize: 16, fontWeight: "700", color: "#111" },
+  viewAllButton: { flexDirection: "row", alignItems: "center", gap: 2 },
+  viewAllText: { color: "#1B8B6A", fontSize: 13, fontWeight: "600" },
+
   newsItem: { flexDirection: "row", alignItems: "center", paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: "#F0F0F0", gap: 10 },
   newsItemLeft: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 8 },
   newsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#1B8B6A", marginTop: 7 },
@@ -583,7 +549,6 @@ const styles = StyleSheet.create({
   detailBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   noNews: { fontSize: 14, color: "#bbb", marginTop: 4 },
 
-  // ข้อ 4+5: Chat Modal
   chatModalOverlay: { flex: 1, justifyContent: "flex-end" },
   chatBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.38)" },
   chatSheet: {
@@ -637,16 +602,4 @@ const styles = StyleSheet.create({
   },
   sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#1B8B6A", justifyContent: "center", alignItems: "center" },
   sendBtnOff: { backgroundColor: "#b2d8cc" },
-
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 24 },
-  modalBox: { backgroundColor: "#fff", borderRadius: 20, padding: 28, width: "100%", maxWidth: 360, alignItems: "center" },
-  modalIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#FEE2E2", justifyContent: "center", alignItems: "center", marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: "700", color: "#111", marginBottom: 8 },
-  modalMsg: { fontSize: 15, color: "#666", textAlign: "center", lineHeight: 22, marginBottom: 24 },
-  modalBtns: { flexDirection: "row", gap: 12, width: "100%" },
-  modalBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: "center" },
-  cancelBtn: { backgroundColor: "#F3F4F6" },
-  cancelBtnText: { color: "#555", fontSize: 15, fontWeight: "600" },
-  confirmBtn: { backgroundColor: "#EF4444" },
-  confirmBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });

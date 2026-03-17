@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator, TouchableOpacity,
   StyleSheet, Alert, Linking,
@@ -6,9 +6,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc, onSnapshot } from 'firebase/firestore';
 import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -47,7 +47,18 @@ export default function NewsDetailScreen() {
   // track ว่าไฟล์ไหนกำลัง download อยู่
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
-  useEffect(() => { if (id) fetchNews(); else setLoading(false); }, [id]);
+  const bookmarkUnsubRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (id) fetchNews();
+    else setLoading(false);
+
+    return () => {
+      // cleanup bookmark listener เมื่อออกจากหน้า
+      bookmarkUnsubRef.current?.();
+      bookmarkUnsubRef.current = null;
+    };
+  }, [id]);
 
   const fetchNews = async () => {
     try {
@@ -59,9 +70,10 @@ export default function NewsDetailScreen() {
       }
       const data = snap.data() as NewsData;
       setNews(data);
-      if (user && userId) await checkBookmark();
 
-      // ดึงไฟล์จาก backend ถ้ามีไฟล์แนบ
+      // เริ่ม realtime bookmark listener หลังโหลดข่าวเสร็จ
+      if (user && userId) startBookmarkListener();
+
       if (data.files && data.files.length > 0) {
         fetchNewsFiles(snap.id);
       }
@@ -72,8 +84,20 @@ export default function NewsDetailScreen() {
     }
   };
 
-  // ดึงไฟล์จาก News_Files collection ผ่าน backend
-  // backend จะ clean URL (ตัด fl_attachment) ให้ก่อนส่งกลับ
+  // onSnapshot ฟัง bookmarks array ของ user realtime
+  // ทำให้ไอคอนบุ๊คมาร์คใน header อัปเดตทันทีเมื่อกดบันทึก/ยกเลิก
+  const startBookmarkListener = () => {
+    if (!user || !userId) return;
+    const col     = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
+    const userRef = doc(db, col, userId);
+
+    bookmarkUnsubRef.current = onSnapshot(userRef, (snap) => {
+      if (snap.exists()) {
+        setIsBookmarked((snap.data()?.bookmarks || []).includes(id));
+      }
+    });
+  };
+
   const fetchNewsFiles = async (newsId: string) => {
     setFilesLoading(true);
     try {
@@ -83,22 +107,13 @@ export default function NewsDetailScreen() {
       if (json.success && json.files.length > 0) {
         setNewsFiles(json.files);
       } else {
-        // fallback ใช้ข้อมูลจาก news.files โดยตรงถ้า News_Files ว่าง
         setNewsFiles([]);
       }
     } catch {
-      // fallback — ถ้า backend error ให้ใช้ files จาก news document แทน
       setNewsFiles([]);
     } finally {
       setFilesLoading(false);
     }
-  };
-
-  const checkBookmark = async () => {
-    if (!user || !userId) return;
-    const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
-    const snap = await getDoc(doc(db, col, userId));
-    if (snap.exists()) setIsBookmarked((snap.data()?.bookmarks || []).includes(id));
   };
 
   const toggleBookmark = async () => {
@@ -110,18 +125,18 @@ export default function NewsDetailScreen() {
     try {
       const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
       const ref = doc(db, col, userId);
+      // ไม่ต้อง setIsBookmarked เอง — onSnapshot จะ sync ให้อัตโนมัติ
       if (isBookmarked) {
         await updateDoc(ref, { bookmarks: arrayRemove(id) });
-        setIsBookmarked(false);
       } else {
         await updateDoc(ref, { bookmarks: arrayUnion(id) });
-        setIsBookmarked(true);
       }
     } catch (e: any) {
       if (e.code === 'not-found') {
         const col = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
         await setDoc(doc(db, col, userId), { bookmarks: [id] }, { merge: true });
-        setIsBookmarked(true);
+      } else {
+        Alert.alert('ข้อผิดพลาด', 'ไม่สามารถบันทึกข่าวได้');
       }
     } finally {
       setBookmarking(false);
@@ -129,49 +144,42 @@ export default function NewsDetailScreen() {
   };
 
   /**
-   * เปิดไฟล์ — download จาก backend proxy ลง cache แล้วเปิดด้วย expo-sharing
-   * ใช้ backend เป็นตัวกลางเพื่อแก้ปัญหา Cloudinary /raw/upload/ ที่ browser เปิดไม่ได้
+   * เปิดไฟล์ — download ลง cache แล้วเปิดด้วย IntentLauncher (Android)
+   * ไม่ใช้ share sheet — เปิดไฟล์โดยตรงด้วยแอปที่เหมาะสม
    */
   const handleOpenFile = useCallback(async (file: NewsFile) => {
     const fileKey = file.file_id || file.file_name;
     setDownloadingId(fileKey);
 
     try {
-      const mime    = file.mime_type || '';
+      const mime     = file.mime_type || 'application/octet-stream';
+      const ext      = getExtension(file.file_name, mime);
       const safeName = file.file_name.replace(/[^a-zA-Z0-9ก-๛._-]/g, '_');
       const localUri = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
 
-      console.log('⬇️ Downloading via backend proxy:', file.fileURL);
-
-      // download ผ่าน backend proxy URL (ที่ backend ส่งมาให้แล้ว)
-      // backend จะ fetch จาก Cloudinary แล้ว stream ส่งกลับพร้อม Content-Type ที่ถูกต้อง
+      console.log('⬇️ Downloading:', file.fileURL);
       const downloadResult = await FileSystem.downloadAsync(file.fileURL, localUri);
 
       if (downloadResult.status !== 200) {
         throw new Error(`Download failed: HTTP ${downloadResult.status}`);
       }
-
       console.log('✅ Downloaded to:', downloadResult.uri);
 
-      // ตรวจว่า expo-sharing รองรับบน device นี้ไหม
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) {
-        Alert.alert('ไม่รองรับ', 'อุปกรณ์นี้ไม่รองรับการเปิดไฟล์');
-        return;
-      }
+      // แปลง file:// URI เป็น content:// URI ที่ Android intent ต้องการ
+      const contentUri = await FileSystem.getContentUriAsync(downloadResult.uri);
+      console.log('📤 Opening with IntentLauncher:', contentUri);
 
-      const ext = getExtension(file.file_name, mime);
-      await Sharing.shareAsync(downloadResult.uri, {
-        mimeType: mime || getMimeFromExt(ext),
-        dialogTitle: `เปิด ${file.file_name}`,
-        UTI: getUTI(mime),
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri,
+        flags: 1,  // FLAG_GRANT_READ_URI_PERMISSION
+        type: mime || getMimeFromExt(ext),
       });
 
     } catch (err: any) {
       console.error('❌ Open file error:', err);
       Alert.alert(
         'ไม่สามารถเปิดไฟล์ได้',
-        'กรุณาติดตั้งแอปสำหรับเปิดไฟล์ประเภทนี้ เช่น Adobe Acrobat, WPS Office หรือ Google Drive'
+        'กรุณาติดตั้งแอปสำหรับเปิดไฟล์ประเภทนี้ เช่น Adobe Acrobat, WPS Office หรือแอป File Manager'
       );
     } finally {
       setDownloadingId(null);
@@ -470,27 +478,7 @@ export default function NewsDetailScreen() {
           </View>
         )}
 
-        {/* ═══ BOOKMARK ═══ */}
-        <View style={styles.bookmarkWrap}>
-          <TouchableOpacity
-            style={[styles.bookmarkBtn, isBookmarked && styles.bookmarkBtnOn]}
-            onPress={toggleBookmark}
-            disabled={bookmarking}
-            activeOpacity={0.85}
-          >
-            {bookmarking
-              ? <ActivityIndicator size="small" color={isBookmarked ? '#fff' : '#1B8B6A'} />
-              : <Ionicons
-                  name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                  size={20}
-                  color={isBookmarked ? '#fff' : '#1B8B6A'}
-                />
-            }
-            <Text style={[styles.bookmarkBtnText, isBookmarked && { color: '#fff' }]}>
-              {bookmarking ? 'กำลังบันทึก...' : isBookmarked ? 'บันทึกแล้ว ✓' : 'บันทึกข่าวนี้'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        {/* bookmark อยู่ที่ header ด้านบนแล้ว — ไม่ต้องมีปุ่มซ้ำด้านล่าง */}
       </ScrollView>
     </View>
   );

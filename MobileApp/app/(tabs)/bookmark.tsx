@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, collection, query, where, documentId } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -17,25 +18,72 @@ export default function BookmarkScreen() {
   const router = useRouter();
   const { user, userId, userProfile } = useAuth();
   const [bookmarkedNews, setBookmarkedNews] = useState<NewsItem[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => { if (user && userId) loadBookmarks(); }, [user, userId]);
+  // ── Realtime: ฟัง document ของ user เพื่อรู้ว่า bookmarks เปลี่ยนไหม
+  // แล้วดึงข่าวที่ bookmark ทันที
+  useFocusEffect(
+    useCallback(() => {
+      if (!user || !userId) { setLoading(false); return; }
 
-  const loadBookmarks = async () => {
-    if (!user || !userId) return;
-    try {
-      const col  = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
-      const snap = await getDoc(doc(db, col, userId));
-      if (!snap.exists()) { setLoading(false); setRefreshing(false); return; }
-      const ids: string[] = snap.data()?.bookmarks || [];
-      if (!ids.length) { setBookmarkedNews([]); setLoading(false); setRefreshing(false); return; }
-      const docs = await Promise.all(ids.map(id => getDoc(doc(db, 'News', id))));
-      const data = docs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
-      data.sort((a, b) => (b.time?.toMillis?.() || 0) - (a.time?.toMillis?.() || 0));
-      setBookmarkedNews(data);
-    } catch {}
-    finally { setLoading(false); setRefreshing(false); }
+      const col        = userProfile?.role?.role_id === 'student' ? 'Student' : 'Teacher';
+      const userDocRef = doc(db, col, userId);
+      let newsUnsub: (() => void) | null = null;
+
+      // onSnapshot user doc — ทุกครั้งที่ bookmarks array เปลี่ยน จะ fetch ข่าวใหม่ทันที
+      const userUnsub = onSnapshot(userDocRef, async (snap) => {
+        const ids: string[] = snap.data()?.bookmarks || [];
+
+        // cleanup listener เก่าก่อน
+        if (newsUnsub) { newsUnsub(); newsUnsub = null; }
+
+        if (!ids.length) {
+          setBookmarkedNews([]);
+          setLoading(false);
+          setRefreshing(false);
+          return;
+        }
+
+        // ดึงข่าวทั้งหมดที่ bookmark — ทีละ 10 ตาม Firestore limit
+        try {
+          const chunks: string[][] = [];
+          for (let i = 0; i < ids.length; i += 10) {
+            chunks.push(ids.slice(i, i + 10));
+          }
+          const allDocs = (
+            await Promise.all(
+              chunks.map(chunk =>
+                Promise.all(chunk.map(id => getDoc(doc(db, 'News', id))))
+              )
+            )
+          ).flat();
+
+          const data = allDocs
+            .filter(d => d.exists())
+            .map(d => ({ id: d.id, ...d.data() })) as NewsItem[];
+
+          // เรียงตาม order ของ bookmarks array (ล่าสุดอยู่บน)
+          data.sort((a, b) => (b.time?.toMillis?.() || 0) - (a.time?.toMillis?.() || 0));
+          setBookmarkedNews(data);
+        } catch {}
+        finally {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }, () => { setLoading(false); setRefreshing(false); });
+
+      return () => {
+        userUnsub();
+        if (newsUnsub) newsUnsub();
+      };
+    }, [user, userId, userProfile])
+  );
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // onSnapshot จะ trigger เองอยู่แล้ว แค่ set refreshing ให้ indicator ขึ้น
+    // แล้วจะ reset ใน callback ของ onSnapshot
   };
 
   const formatDate = (ts: any) => {
@@ -66,19 +114,16 @@ export default function BookmarkScreen() {
 
   return (
     <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
-      <Stack.Screen options={{
-        title: 'ข่าวที่บันทึก',
-        headerStyle: { backgroundColor: '#1B8B6A' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '700' },
-      }} />
-
       <View style={styles.container}>
         {loading ? (
-          <View style={styles.centered}><ActivityIndicator size="large" color="#1B8B6A" /></View>
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#1B8B6A" />
+          </View>
         ) : bookmarkedNews.length === 0 ? (
           <View style={styles.empty}>
-            <View style={styles.emptyIcon}><Ionicons name="bookmark-outline" size={48} color="#1B8B6A" /></View>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="bookmark-outline" size={48} color="#1B8B6A" />
+            </View>
             <Text style={styles.emptyTitle}>ยังไม่มีข่าวที่บันทึก</Text>
             <Text style={styles.emptySub}>กดไอคอนบุ๊กมาร์กในหน้าข่าว{'\n'}เพื่อบันทึกข่าวที่สนใจ</Text>
           </View>
@@ -89,8 +134,16 @@ export default function BookmarkScreen() {
             keyExtractor={i => i.id}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadBookmarks(); }} colors={['#1B8B6A']} />}
-            ListHeaderComponent={<Text style={styles.resultCount}>{bookmarkedNews.length} ข่าวที่บันทึก</Text>}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={['#1B8B6A']}
+              />
+            }
+            ListHeaderComponent={
+              <Text style={styles.resultCount}>{bookmarkedNews.length} ข่าวที่บันทึก</Text>
+            }
           />
         )}
       </View>

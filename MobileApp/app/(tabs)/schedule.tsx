@@ -1,9 +1,9 @@
 import { db } from "@/config/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import React, { useEffect, useRef, useState } from "react";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { useFocusEffect } from "@react-navigation/native";
+import React, { useCallback, useRef, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Alert,
@@ -22,6 +22,7 @@ import {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"];
+const DAYS_TAB   = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"]; // ย่อสำหรับ tab bar
 const HOURS      = Array.from({ length: 15 }, (_, i) => 7 + i); // 07–21
 const COLORS     = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#06B6D4", "#84CC16"];
 const ROW_H      = 64; // px ต่อ 1 ชั่วโมง
@@ -59,7 +60,6 @@ interface ScheduleItem {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ScheduleScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, userId, userProfile } = useAuth();
 
@@ -91,20 +91,23 @@ export default function ScheduleScreen() {
   const [pickerTarget, setPickerTarget]     = useState<"start" | "end">("start");
   const [pickerSelected, setPickerSelected] = useState("08:00");
 
-  // ─── Firestore ─────────────────────────────────────────────────────────
-  useEffect(() => { if (user && userId) loadSchedule(); }, [user, userId]);
+  // ─── Firestore: useFocusEffect + onSnapshot ──────────────────────────
+  const unsubScheduleRef = useRef<(() => void) | null>(null);
 
   const updateItems = (items: ScheduleItem[]) => {
     itemsRef.current = items;
     setScheduleItems(items);
   };
 
-  const loadSchedule = async () => {
-    if (!user || !userId) return;
-    try {
-      const col  = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
-      const snap = await getDoc(doc(db, col, userId));
-      if (snap.exists()) {
+  useFocusEffect(
+    useCallback(() => {
+      if (!user || !userId) return;
+      const col     = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
+      const userRef = doc(db, col, userId);
+
+      // onSnapshot: อัปเดตตารางเรียนทันทีเมื่อมีการเปลี่ยนแปลงใน Firestore
+      unsubScheduleRef.current = onSnapshot(userRef, (snap) => {
+        if (!snap.exists()) return;
         const raw: any[] = snap.data()?.schedule || [];
         const migrated   = raw.map((item) => ({
           ...item,
@@ -112,9 +115,14 @@ export default function ScheduleScreen() {
           endTime:   item.endTime   || decimalToTime(item.endHour),
         }));
         updateItems(migrated);
-      }
-    } catch {}
-  };
+      });
+
+      return () => {
+        unsubScheduleRef.current?.();
+        unsubScheduleRef.current = null;
+      };
+    }, [user, userId, userProfile])
+  );
 
   const saveSchedule = async (items: ScheduleItem[]) => {
     if (!user || !userId) return;
@@ -215,32 +223,29 @@ export default function ScheduleScreen() {
 
   // ─── Sub-components ────────────────────────────────────────────────────
 
-  // แถบ day tabs ด้านบน
+  // แถบ day tabs ด้านบน — ใช้ View row เต็มหน้าจอ ไม่ scroll
   const DayTabs = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.dayTabsContent}
-      style={styles.dayTabsWrap}
-    >
-      {DAYS_SHORT.map((d, i) => {
-        const hasClass = scheduleItems.some((s) => s.day === i);
-        const isActive = i === activeDay;
-        return (
-          <TouchableOpacity
-            key={i}
-            style={[styles.dayTab, isActive && styles.dayTabActive]}
-            onPress={() => setActiveDay(i)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.dayTabText, isActive && styles.dayTabTextActive]}>
-              {d}
-            </Text>
-            {hasClass && <View style={[styles.dayDot, isActive && styles.dayDotActive]} />}
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+    <View style={styles.dayTabsWrap}>
+      <View style={styles.dayTabsContent}>
+        {DAYS_TAB.map((d, i) => {
+          const hasClass = scheduleItems.some((s) => s.day === i);
+          const isActive = i === activeDay;
+          return (
+            <TouchableOpacity
+              key={i}
+              style={[styles.dayTab, isActive && styles.dayTabActive]}
+              onPress={() => setActiveDay(i)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.dayTabText, isActive && styles.dayTabTextActive]}>
+                {d}
+              </Text>
+              {hasClass && <View style={[styles.dayDot, isActive && styles.dayDotActive]} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
   );
 
   // Timeline grid — position-absolute overlay สำหรับ block วิชา
@@ -348,23 +353,7 @@ export default function ScheduleScreen() {
 
   // ─── Main render ───────────────────────────────────────────────────────
   return (
-    <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
-      <Stack.Screen
-        options={{
-          title: "ตารางเรียน",
-          headerStyle: { backgroundColor: "#1B8B6A" },
-          headerTintColor: "#fff",
-          headerTitleStyle: { fontWeight: "700" },
-          headerLeft: () => (
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={{ marginLeft: 4, padding: 6 }}
-            >
-              <Ionicons name="arrow-back" size={22} color="#fff" />
-            </TouchableOpacity>
-          ),
-        }}
-      />
+    <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
 
       <View style={styles.container}>
         {/* Day tabs */}
@@ -647,20 +636,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
   },
   dayTabsContent: {
     flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
+    justifyContent: "space-between",
   },
   dayTab: {
-    paddingHorizontal: 14,
+    flex: 1,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
-    minWidth: 64,
+    justifyContent: "center",
+    marginHorizontal: 2,
   },
   dayTabActive: {
     backgroundColor: "#1B8B6A",
@@ -669,6 +659,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: "#666",
+    textAlign: "center",
   },
   dayTabTextActive: {
     color: "#fff",

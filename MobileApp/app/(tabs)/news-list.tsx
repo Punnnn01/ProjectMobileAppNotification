@@ -4,7 +4,7 @@ import {
   ActivityIndicator, TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, Stack } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -115,12 +115,6 @@ export default function NewsListScreen() {
 
   return (
     <View style={[styles.safe, { paddingBottom: insets.bottom }]}>
-      <Stack.Screen options={{
-        title: 'ข่าวสารทั้งหมด',
-        headerStyle: { backgroundColor: '#1B8B6A' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '700' },
-      }} />
 
       <View style={styles.container}>
         <View style={styles.searchWrap}>

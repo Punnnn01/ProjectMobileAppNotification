@@ -20,8 +20,8 @@ function RootLayoutNav() {
 
     const seg0 = segments[0] as string;
 
-    const inAuthGroup     = seg0 === '(tabs)';
-    const inProtectedRoutes = ['profile', 'schedule', 'bookmark', 'news-list', 'news'].includes(seg0);
+    const inAuthGroup       = seg0 === '(tabs)';
+    const inProtectedRoutes = ['news'].includes(seg0); // profile/schedule/bookmark/news-list ย้ายเข้า (tabs) แล้ว
 
     if (!user && (inAuthGroup || inProtectedRoutes)) {
       router.replace('/login');
@@ -53,30 +53,6 @@ function RootLayoutNav() {
         <Stack.Screen name="register" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)"   options={{ headerShown: false }} />
 
-        <Stack.Screen name="profile" options={{
-          headerShown: true,
-          title: 'โปรไฟล์',
-          ...greenHeader,
-        }} />
-
-        <Stack.Screen name="schedule" options={{
-          headerShown: true,
-          title: 'ตารางเรียน',
-          ...greenHeader,
-        }} />
-
-        <Stack.Screen name="bookmark" options={{
-          headerShown: true,
-          title: 'ข่าวที่บันทึก',
-          ...greenHeader,
-        }} />
-
-        <Stack.Screen name="news-list" options={{
-          headerShown: true,
-          title: 'ข่าวสารทั้งหมด',
-          ...greenHeader,
-        }} />
-
         {/* news/[id].tsx — ใช้ชื่อ folder/file ตรงๆ */}
         <Stack.Screen name="news/[id]" options={{
           headerShown: true,
@@ -86,7 +62,7 @@ function RootLayoutNav() {
 
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
-      <StatusBar style="light" translucent={false} />
+      <StatusBar style="light" backgroundColor="#1B8B6A" translucent={false} />
     </ThemeProvider>
   );
 }
