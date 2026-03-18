@@ -83,8 +83,15 @@ export default function ScheduleScreen() {
   const [colorIndex, setColorIndex]           = useState(0);
 
   // Detail modal
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [detailItem, setDetailItem]       = useState<ScheduleItem | null>(null);
+  const [detailVisible, setDetailVisible]   = useState(false);
+  const [detailItem, setDetailItem]         = useState<ScheduleItem | null>(null);
+  const [isEditingDetail, setIsEditingDetail] = useState(false);
+  const [editCode, setEditCode]             = useState("");
+  const [editName, setEditName]             = useState("");
+  const [editRoom, setEditRoom]             = useState("");
+  const [editStartTime, setEditStartTime]   = useState("08:00");
+  const [editEndTime, setEditEndTime]       = useState("09:00");
+  const [editColorIndex, setEditColorIndex] = useState(0);
 
   // Time picker
   const [pickerVisible, setPickerVisible]   = useState(false);
@@ -129,7 +136,7 @@ export default function ScheduleScreen() {
     try {
       const col = userProfile?.role?.role_id === "student" ? "Student" : "Teacher";
       await setDoc(doc(db, col, userId), { schedule: items }, { merge: true });
-      updateItems(items);
+      // ไม่ call updateItems เอง — ปล่อยให้ onSnapshot จัดการอย่างเดียว เพื่อป้องกัน race condition
     } catch {
       Alert.alert("ข้อผิดพลาด", "ไม่สามารถบันทึกตารางได้");
     }
@@ -183,10 +190,71 @@ export default function ScheduleScreen() {
 
   const handleDelete = () => {
     if (!detailItem) return;
-    const id = detailItem.id;
-    setDetailVisible(false);
-    setDetailItem(null);
-    saveSchedule(itemsRef.current.filter((i) => i.id !== id));
+    // capture id ไว้ก่อน Alert เพื่อป้องกัน stale closure
+    const idToDelete   = detailItem.id;
+    const nameToDelete = detailItem.subjectName;
+    Alert.alert("ยืนยันการลบ", `ลบวิชา "${nameToDelete}" ใช่ไหม?`, [
+      { text: "ยกเลิก", style: "cancel" },
+      { text: "ลบ", style: "destructive", onPress: () => {
+        // ปิด modal ก่อน
+        setDetailVisible(false);
+        setDetailItem(null);
+        setIsEditingDetail(false);
+        // filter จาก itemsRef โดยใช้ id ที่ capture ไว้แล้ว
+        const remaining = itemsRef.current.filter((i) => i.id !== idToDelete);
+        saveSchedule(remaining);
+      }},
+    ]);
+  };
+
+  const openEditDetail = () => {
+    if (!detailItem) return;
+    setEditCode(detailItem.subjectCode);
+    setEditName(detailItem.subjectName);
+    setEditRoom(detailItem.room || "");
+    setEditStartTime(detailItem.startTime);
+    setEditEndTime(detailItem.endTime);
+    setEditColorIndex(COLORS.indexOf(detailItem.color || COLORS[0]));
+    setIsEditingDetail(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!detailItem) return;
+    if (!editCode.trim() || !editName.trim()) {
+      Alert.alert("กรุณากรอกข้อมูล", "กรุณากรอกรหัสวิชาและชื่อวิชา");
+      return;
+    }
+    const sH = timeToDecimal(editStartTime);
+    const eH = timeToDecimal(editEndTime);
+    if (eH <= sH) {
+      Alert.alert("เวลาไม่ถูกต้อง", "เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น");
+      return;
+    }
+    const conflict = itemsRef.current.some(
+      (item) =>
+        item.id !== detailItem.id &&
+        item.day === detailItem.day &&
+        !(eH <= item.startHour || sH >= item.endHour)
+    );
+    if (conflict) {
+      Alert.alert("ตารางซ้อนทับ", "มีวิชาอื่นในช่วงเวลานี้แล้ว");
+      return;
+    }
+    const updated: ScheduleItem = {
+      ...detailItem,
+      subjectCode: editCode.trim(),
+      subjectName: editName.trim(),
+      room: editRoom.trim(),
+      startTime: editStartTime,
+      endTime: editEndTime,
+      startHour: sH,
+      endHour: eH,
+      color: COLORS[editColorIndex >= 0 ? editColorIndex : 0],
+    };
+    const newItems = itemsRef.current.map((i) => i.id === detailItem.id ? updated : i);
+    saveSchedule(newItems);
+    setDetailItem(updated);
+    setIsEditingDetail(false);
   };
 
   const openPicker = (target: "start" | "end") => {
@@ -196,14 +264,28 @@ export default function ScheduleScreen() {
   };
 
   const confirmPicker = () => {
-    if (pickerTarget === "start") {
-      setStartTime(pickerSelected);
-      if (timeToDecimal(pickerSelected) >= timeToDecimal(endTime)) {
-        const idx = TIME_OPTIONS.indexOf(pickerSelected) + 2;
-        setEndTime(TIME_OPTIONS[Math.min(idx, TIME_OPTIONS.length - 1)]);
+    if (isEditingDetail) {
+      // edit mode — อัปเดต editStartTime / editEndTime
+      if (pickerTarget === "start") {
+        setEditStartTime(pickerSelected);
+        if (timeToDecimal(pickerSelected) >= timeToDecimal(editEndTime)) {
+          const idx = TIME_OPTIONS.indexOf(pickerSelected) + 2;
+          setEditEndTime(TIME_OPTIONS[Math.min(idx, TIME_OPTIONS.length - 1)]);
+        }
+      } else {
+        setEditEndTime(pickerSelected);
       }
     } else {
-      setEndTime(pickerSelected);
+      // add mode — อัปเดต startTime / endTime เดิม
+      if (pickerTarget === "start") {
+        setStartTime(pickerSelected);
+        if (timeToDecimal(pickerSelected) >= timeToDecimal(endTime)) {
+          const idx = TIME_OPTIONS.indexOf(pickerSelected) + 2;
+          setEndTime(TIME_OPTIONS[Math.min(idx, TIME_OPTIONS.length - 1)]);
+        }
+      } else {
+        setEndTime(pickerSelected);
+      }
     }
     setPickerVisible(false);
   };
@@ -395,42 +477,134 @@ export default function ScheduleScreen() {
         visible={detailVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => { setDetailVisible(false); setDetailItem(null); }}
+        onRequestClose={() => { setDetailVisible(false); setDetailItem(null); setIsEditingDetail(false); }}
       >
         <View style={styles.overlay}>
           <View style={styles.detailBox}>
-            <View style={[styles.detailStrip, { backgroundColor: detailItem?.color ?? "#1B8B6A" }]} />
+            <View style={[styles.detailStrip, { backgroundColor: isEditingDetail ? COLORS[editColorIndex >= 0 ? editColorIndex : 0] : (detailItem?.color ?? "#1B8B6A") }]} />
             <View style={styles.detailBody}>
-              <Text style={styles.detailCode}>{detailItem?.subjectCode}</Text>
-              <Text style={styles.detailName}>{detailItem?.subjectName}</Text>
 
-              <View style={styles.detailRow}>
-                <View style={styles.detailIcon}><Ionicons name="calendar-outline" size={16} color="#1B8B6A" /></View>
-                <Text style={styles.detailText}>วัน{DAYS_SHORT[detailItem?.day ?? 0]}</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <View style={styles.detailIcon}><Ionicons name="time-outline" size={16} color="#1B8B6A" /></View>
-                <Text style={styles.detailText}>{detailItem?.startTime} – {detailItem?.endTime}</Text>
-              </View>
-              {detailItem?.room ? (
-                <View style={styles.detailRow}>
-                  <View style={styles.detailIcon}><Ionicons name="location-outline" size={16} color="#1B8B6A" /></View>
-                  <Text style={styles.detailText}>{detailItem.room}</Text>
-                </View>
-              ) : null}
+              {isEditingDetail ? (
+                /* ─── EDIT MODE ─── */
+                <>
+                  <Text style={styles.detailEditTitle}>แก้ไขรายวิชา</Text>
 
-              <View style={styles.detailActions}>
-                <TouchableOpacity
-                  style={styles.btnClose}
-                  onPress={() => { setDetailVisible(false); setDetailItem(null); }}
-                >
-                  <Text style={styles.btnCloseText}>ปิด</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.btnDelete} onPress={handleDelete}>
-                  <Ionicons name="trash-outline" size={16} color="#fff" />
-                  <Text style={styles.btnDeleteText}>ลบวิชา</Text>
-                </TouchableOpacity>
-              </View>
+                  {/* สี */}
+                  <Text style={styles.detailFieldLabel}>สีวิชา</Text>
+                  <View style={styles.colorRow}>
+                    {COLORS.map((c, i) => (
+                      <TouchableOpacity
+                        key={c}
+                        style={[styles.colorDot, { backgroundColor: c }, editColorIndex === i && styles.colorDotOn]}
+                        onPress={() => setEditColorIndex(i)}
+                      >
+                        {editColorIndex === i && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* รหัสวิชา */}
+                  <Text style={styles.detailFieldLabel}>รหัสวิชา *</Text>
+                  <TextInput
+                    style={styles.detailInput}
+                    value={editCode}
+                    onChangeText={setEditCode}
+                    placeholder="รหัสวิชา"
+                    placeholderTextColor="#bbb"
+                  />
+
+                  {/* ชื่อวิชา */}
+                  <Text style={styles.detailFieldLabel}>ชื่อวิชา *</Text>
+                  <TextInput
+                    style={styles.detailInput}
+                    value={editName}
+                    onChangeText={setEditName}
+                    placeholder="ชื่อวิชา"
+                    placeholderTextColor="#bbb"
+                  />
+
+                  {/* ห้องเรียน */}
+                  <Text style={styles.detailFieldLabel}>ห้องเรียน</Text>
+                  <TextInput
+                    style={styles.detailInput}
+                    value={editRoom}
+                    onChangeText={setEditRoom}
+                    placeholder="ห้องเรียน (ไม่บังคับ)"
+                    placeholderTextColor="#bbb"
+                  />
+
+                  {/* เวลา */}
+                  <Text style={styles.detailFieldLabel}>ช่วงเวลา</Text>
+                  <View style={styles.timePickerRow}>
+                    <TouchableOpacity
+                      style={styles.timePill}
+                      onPress={() => { setPickerTarget("start"); setPickerSelected(editStartTime); setPickerVisible(true); }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="time-outline" size={15} color="#1B8B6A" />
+                      <Text style={styles.timePillText}>{editStartTime}</Text>
+                      <Ionicons name="chevron-down" size={13} color="#999" />
+                    </TouchableOpacity>
+                    <View style={styles.timeArrow}>
+                      <Ionicons name="arrow-forward" size={16} color="#bbb" />
+                    </View>
+                    <TouchableOpacity
+                      style={styles.timePill}
+                      onPress={() => { setPickerTarget("end"); setPickerSelected(editEndTime); setPickerVisible(true); }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="time-outline" size={15} color="#1B8B6A" />
+                      <Text style={styles.timePillText}>{editEndTime}</Text>
+                      <Ionicons name="chevron-down" size={13} color="#999" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.detailActions}>
+                    <TouchableOpacity style={styles.btnClose} onPress={() => setIsEditingDetail(false)}>
+                      <Text style={styles.btnCloseText}>ยกเลิก</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnSave} onPress={handleSaveEdit}>
+                      <Ionicons name="checkmark-outline" size={16} color="#fff" />
+                      <Text style={styles.btnSaveText}>บันทึก</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                /* ─── VIEW MODE ─── */
+                <>
+                  <Text style={styles.detailCode}>{detailItem?.subjectCode}</Text>
+                  <Text style={styles.detailName}>{detailItem?.subjectName}</Text>
+
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}><Ionicons name="calendar-outline" size={16} color="#1B8B6A" /></View>
+                    <Text style={styles.detailText}>วัน{DAYS_SHORT[detailItem?.day ?? 0]}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailIcon}><Ionicons name="time-outline" size={16} color="#1B8B6A" /></View>
+                    <Text style={styles.detailText}>{detailItem?.startTime} – {detailItem?.endTime}</Text>
+                  </View>
+                  {detailItem?.room ? (
+                    <View style={styles.detailRow}>
+                      <View style={styles.detailIcon}><Ionicons name="location-outline" size={16} color="#1B8B6A" /></View>
+                      <Text style={styles.detailText}>{detailItem.room}</Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.detailActions}>
+                    <TouchableOpacity style={styles.btnClose} onPress={() => { setDetailVisible(false); setDetailItem(null); }}>
+                      <Text style={styles.btnCloseText}>ปิด</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnEdit} onPress={openEditDetail}>
+                      <Ionicons name="create-outline" size={16} color="#fff" />
+                      <Text style={styles.btnEditText}>แก้ไข</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnDelete} onPress={handleDelete}>
+                      <Ionicons name="trash-outline" size={16} color="#fff" />
+                      <Text style={styles.btnDeleteText}>ลบ</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -596,7 +770,9 @@ export default function ScheduleScreen() {
             <FlatList
               data={
                 pickerTarget === "end"
-                  ? TIME_OPTIONS.filter((t) => timeToDecimal(t) > timeToDecimal(startTime))
+                  ? TIME_OPTIONS.filter((t) =>
+                      timeToDecimal(t) > timeToDecimal(isEditingDetail ? editStartTime : startTime)
+                    )
                   : TIME_OPTIONS
               }
               keyExtractor={(t) => t}
@@ -839,18 +1015,37 @@ const styles = StyleSheet.create({
     justifyContent: "center", alignItems: "center",
   },
   detailText:    { fontSize: 14, color: "#333", fontWeight: "500" },
-  detailActions: { flexDirection: "row", gap: 12, marginTop: 20 },
-  btnClose:      {
-    flex: 1, paddingVertical: 13, borderRadius: 12,
+  detailActions: { flexDirection: "row", gap: 8, marginTop: 16 },
+  btnClose: {
+    flex: 1, paddingVertical: 12, borderRadius: 12,
     backgroundColor: "#F3F4F6", alignItems: "center",
   },
-  btnCloseText:  { fontSize: 15, fontWeight: "600", color: "#555" },
+  btnCloseText: { fontSize: 14, fontWeight: "600", color: "#555" },
+  btnEdit: {
+    flex: 1, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 5,
+    paddingVertical: 12, borderRadius: 12, backgroundColor: "#1B8B6A",
+  },
+  btnEditText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  btnSave: {
+    flex: 1, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", gap: 5,
+    paddingVertical: 12, borderRadius: 12, backgroundColor: "#1B8B6A",
+  },
+  btnSaveText: { fontSize: 14, fontWeight: "700", color: "#fff" },
   btnDelete: {
     flex: 1, flexDirection: "row", alignItems: "center",
-    justifyContent: "center", gap: 6,
-    paddingVertical: 13, borderRadius: 12, backgroundColor: "#EF4444",
+    justifyContent: "center", gap: 5,
+    paddingVertical: 12, borderRadius: 12, backgroundColor: "#EF4444",
   },
-  btnDeleteText: { fontSize: 15, fontWeight: "700", color: "#fff" },
+  btnDeleteText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  detailEditTitle: { fontSize: 17, fontWeight: "800", color: "#111", marginBottom: 14 },
+  detailFieldLabel: { fontSize: 12, fontWeight: "700", color: "#777", marginBottom: 6, marginTop: 12 },
+  detailInput: {
+    backgroundColor: "#F9FAFB", borderWidth: 1.5, borderColor: "#E5E7EB",
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, color: "#111",
+  },
 
   // ── Add Modal (bottom sheet) ───────────────────────────────────────────
   sheetBg: {

@@ -30,7 +30,6 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -375,11 +374,7 @@ export default function HomeScreen() {
         onRequestClose={handleCloseChat}
         statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          style={styles.chatModalOverlay}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
-        >
+        <View style={styles.chatModalOverlay}>
           <TouchableOpacity style={styles.chatBackdrop} onPress={handleCloseChat} activeOpacity={1} />
           <View style={[styles.chatSheet, { paddingBottom: insets.bottom }]}>
             <View style={styles.dragHandle} />
@@ -411,7 +406,6 @@ export default function HomeScreen() {
               style={styles.msgList}
               contentContainerStyle={styles.msgListContent}
               showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
             >
               {chatLoading ? (
                 <View style={styles.centered}>
@@ -478,7 +472,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );

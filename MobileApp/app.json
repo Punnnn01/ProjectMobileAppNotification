@@ -20,6 +20,7 @@
     "android": {
       "package": "com.ku.kunoti",
       "googleServicesFile": "./google-services.json",
+      "softwareKeyboardLayoutMode": "pan",
       "adaptiveIcon": {
         "backgroundColor": "#1B8B6A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

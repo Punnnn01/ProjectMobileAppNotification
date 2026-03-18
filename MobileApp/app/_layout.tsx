@@ -4,16 +4,47 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import { Platform, Linking } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { NotificationProvider } from '@/context/NotificationContext';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { View, ActivityIndicator, Text, Alert } from 'react-native';
+
+// ── ขอ permission ตั้งแต่แอปเปิดครั้งแรก (ก่อน login) ─────────────────────────
+async function requestNotificationPermissionOnStartup() {
+  if (!Device.isDevice || Platform.OS === 'web') return;
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status === 'undetermined') {
+      // ยังไม่เคยถาม — ถามทันที
+      await Notifications.requestPermissionsAsync();
+    } else if (status === 'denied') {
+      // เคยปฏิเสธ — แจ้งให้ไปเปิดใน Settings
+      Alert.alert(
+        '🔔 เปิดการแจ้งเตือน',
+        'เปิดการแจ้งเตือนเพื่อรับข่าวสารจากมหาวิทยาลัย',
+        [
+          { text: 'ไม่ใช่ตอนนี้', style: 'cancel' },
+          { text: 'เปิดการตั้งค่า', onPress: () => Linking.openSettings() },
+        ]
+      );
+    }
+    // granted — ไม่ต้องทำอะไร
+  } catch {}
+}
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { user, userProfile, loading } = useAuth();
   const segments = useSegments();
+
+  // ขอ permission ทันทีที่แอปโหลด
+  useEffect(() => {
+    requestNotificationPermissionOnStartup();
+  }, []);
 
   useEffect(() => {
     if (loading) return;
