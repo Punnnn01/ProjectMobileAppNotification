@@ -204,13 +204,17 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     // ส่งผ่าน FCM (legacy tokens)
     for (const token of fcmTokens) {
       try {
-        await admin.messaging().send({
+        const result = await admin.messaging().send({
           notification: { title: notifTitle, body: notifBody },
           data: notifData, token,
           android: { priority: 'high' as const, notification: { sound: 'default', channelId: 'default' } },
         });
+        console.log(`✅ FCM sent: ${result}`);
         successCount++;
-      } catch { errorCount++; }
+      } catch (e: any) {
+        console.error(`❌ FCM error for token ${token.substring(0,20)}...: ${e.message}`);
+        errorCount++;
+      }
     }
 
     console.log(`✅ Notifications: ${successCount} sent, ${errorCount} errors`);

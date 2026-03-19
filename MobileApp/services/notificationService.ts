@@ -55,14 +55,12 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       console.log('✓ Android notification channel created');
     }
 
-    // ดึง Expo Push Token (ใช้ได้กับ EAS Build / APK)
-    console.log('📤 Getting Expo Push Token...');
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: 'e8420dc9-6277-4811-8c58-e4885a79f274',
-    });
+    // ดึง FCM Token โดยตรง (ใช้ได้กับ APK ที่ build เองและ EAS Build)
+    console.log('📤 Getting Device Push Token (FCM)...');
+    const tokenData = await Notifications.getDevicePushTokenAsync();
 
     const token = tokenData.data;
-    console.log('✅ Expo Push Token:', token);
+    console.log('✅ FCM Token:', token);
     console.log('   Platform:', Platform.OS);
 
     return token;

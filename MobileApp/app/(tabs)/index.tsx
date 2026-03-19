@@ -141,7 +141,7 @@ export default function HomeScreen() {
               if (n.group_id === `personal_${userId}`) return true;
               if (userGroupIds.includes(n.group_id)) return true;
               return false;
-            }).slice(0, 5);
+            }).slice(0, 10); // แสดงสูงสุด 10 ข่าว
             setNews(visible);
             setLoading(false);
           }, () => { if (active) setLoading(false); });

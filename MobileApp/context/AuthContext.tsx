@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   User,
   onAuthStateChanged,
@@ -57,7 +58,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 1 ชั่วโมง
+const INACTIVITY_TIMEOUT_MS  = 60 * 60 * 1000;      // 1 ชั่วโมง (ไม่ใช้งาน)
+const BACKGROUND_TIMEOUT_MS  = 8 * 60 * 60 * 1000;  // 8 ชั่วโมง (อยู่ background)
+const MAX_SESSION_MS         = 24 * 60 * 60 * 1000;  // 1 วัน (absolute expiry)
+const LAST_LOGIN_KEY         = 'ku_noti_last_login';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser]               = useState<User | null>(null);
@@ -86,7 +90,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // ติดตาม AppState background > 1 ชั่วโมง
+  // ── ตรวจสอบ absolute session expiry (1 วัน) ──────────────────────────────
+  const checkSessionExpiry = useCallback(async (): Promise<boolean> => {
+    try {
+      const lastLogin = await AsyncStorage.getItem(LAST_LOGIN_KEY);
+      if (!lastLogin) return false;
+      const elapsed = Date.now() - parseInt(lastLogin, 10);
+      if (elapsed >= MAX_SESSION_MS) {
+        console.log('⏰ Session expired (1 วัน) → logout');
+        await AsyncStorage.removeItem(LAST_LOGIN_KEY);
+        return true; // ต้อง logout
+      }
+      return false;
+    } catch { return false; }
+  }, []);
+
+  // ── ติดตาม AppState background > 8 ชั่วโมง ───────────────────────────────
   useEffect(() => {
     const handleAppStateChange = async (nextState: AppStateStatus) => {
       if (nextState === 'background' || nextState === 'inactive') {
@@ -94,8 +113,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (nextState === 'active' && backgroundTime.current) {
         const elapsed = Date.now() - backgroundTime.current;
         backgroundTime.current = null;
-        if (elapsed >= INACTIVITY_TIMEOUT_MS) {
-          console.log('⏰ Background timeout → logout');
+
+        // เช็ค absolute expiry ก่อน
+        const expired = await checkSessionExpiry();
+        if (expired) {
+          await signOut(auth);
+          return;
+        }
+
+        if (elapsed >= BACKGROUND_TIMEOUT_MS) {
+          console.log('⏰ Background timeout (8 ชม.) → logout');
+          await AsyncStorage.removeItem(LAST_LOGIN_KEY);
           await signOut(auth);
         } else {
           resetInactivityTimer();
@@ -104,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     const sub = AppState.addEventListener('change', handleAppStateChange);
     return () => sub.remove();
-  }, [resetInactivityTimer]);
+  }, [resetInactivityTimer, checkSessionExpiry]);
 
   // ── Fetch user profile from Firestore ──────────────────────────────────────
   const fetchUserProfileByAuthUID = useCallback(async (authUID: string) => {
@@ -172,12 +200,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       console.log('Auth state changed:', firebaseUser?.email ?? 'null');
-      setUser(firebaseUser);
 
       if (firebaseUser) {
+        // ตรวจ session expiry ทุกครั้งที่แอป resume
+        const expired = await checkSessionExpiry();
+        if (expired) {
+          await signOut(auth);
+          setLoading(false);
+          return;
+        }
+        setUser(firebaseUser);
         await fetchUserProfileByAuthUID(firebaseUser.uid);
         resetInactivityTimer();
       } else {
+        setUser(null);
         currentAuthUID.current = null;
         setUserProfile(null);
         setUserId(null);
@@ -187,7 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
     return unsubscribe;
-  }, [fetchUserProfileByAuthUID, resetInactivityTimer, clearInactivityTimer]);
+  }, [fetchUserProfileByAuthUID, resetInactivityTimer, clearInactivityTimer, checkSessionExpiry]);
 
   // ── login ──────────────────────────────────────────────────────────────────
   const login = useCallback(async (email: string, password: string) => {
@@ -195,6 +231,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const cred = await signInWithEmailAndPassword(auth, email, password);
     const uid  = cred.user.uid;
     console.log('Login successful:', uid);
+
+    // บันทึกเวลา login สำหรับ session expiry
+    await AsyncStorage.setItem(LAST_LOGIN_KEY, Date.now().toString());
 
     // เช็คสถานะ teacher pending/rejected
     const teacherSnap = await getDocs(
@@ -274,6 +313,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserId(null);
     setUserProfile(null);
     clearInactivityTimer();
+    await AsyncStorage.removeItem(LAST_LOGIN_KEY); // ลบเวลา login
     await signOut(auth);
     console.log('✓ Logged out');
   }, [clearInactivityTimer]);
