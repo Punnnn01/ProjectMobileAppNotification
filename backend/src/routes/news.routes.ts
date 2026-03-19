@@ -212,7 +212,7 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
         console.log(`✅ FCM sent: ${result}`);
         successCount++;
       } catch (e: any) {
-        console.error(`❌ FCM error for token ${token.substring(0,20)}...: ${e.message}`);
+        console.error(`❌ FCM error for token ${String(token).substring(0,20)}...: ${e.message}`);
         errorCount++;
       }
     }
