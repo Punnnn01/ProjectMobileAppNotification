@@ -26,7 +26,7 @@ export type TeacherRow = {
   };
 };
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = 'https://projectmobileappnotification-production.up.railway.app';
 
 const StudentAdvisorMatcher = (): JSX.Element => {
   const [students, setStudents] = useState<StudentRow[]>([]);

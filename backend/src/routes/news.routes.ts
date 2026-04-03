@@ -212,7 +212,23 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
         console.log(`✅ FCM sent: ${result}`);
         successCount++;
       } catch (e: any) {
-        console.error(`❌ FCM error for token ${String(token).substring(0,20)}...: ${e.message}`);
+        const errMsg = String(e.message || '');
+        console.error(`❌ FCM error: ${errMsg}`);
+        // token หมดอายุหรือไม่ถูกต้อง — ลบออกจาก Firestore
+        if (errMsg.includes('NotRegistered') || errMsg.includes('not found') || errMsg.includes('Requested entity')) {
+          try {
+            const [stuSnap, teachSnap] = await Promise.all([
+              db.collection('Student').where('pushToken', '==', token).get(),
+              db.collection('Teacher').where('pushToken', '==', token).get(),
+            ]);
+            const batch = db.batch();
+            [...stuSnap.docs, ...teachSnap.docs].forEach(d => {
+              batch.update(d.ref, { pushToken: null, notificationEnabled: false });
+            });
+            await batch.commit();
+            console.log(`🗑️ Removed invalid token from Firestore`);
+          } catch { /* ไม่ throw */ }
+        }
         errorCount++;
       }
     }
@@ -254,6 +270,102 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.get('/test', (_req: Request, res: Response) => {
   res.json({ success: true, message: 'News API is working!', timestamp: new Date().toISOString() });
+});
+
+/**
+ * PUT /api/news/:id
+ * แก้ไขข่าว (title, content, files ใหม่, links) — ไม่ส่ง notification ซ้ำ
+ */
+router.put('/:id', upload.array('files', 10), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { title, content, links: linksRaw, remove_file_paths: removePathsRaw } = req.body;
+    const uploadedFiles = req.files as Express.Multer.File[];
+
+    const newsDoc = await db.collection('News').doc(id).get();
+    if (!newsDoc.exists) {
+      res.status(404).json({ success: false, error: 'News not found' });
+      return;
+    }
+
+    let links: { label: string; url: string }[] = [];
+    if (linksRaw) { try { links = JSON.parse(linksRaw); } catch { links = []; } }
+
+    // ไฟล์ที่ต้องลบออก (storage_path)
+    let removePaths: string[] = [];
+    if (removePathsRaw) { try { removePaths = JSON.parse(removePathsRaw); } catch { removePaths = []; } }
+
+    const existingData = newsDoc.data() as any;
+    let existingFiles: any[] = existingData.files || [];
+
+    // ลบไฟล์เก่าที่เลือกลบ
+    for (const path of removePaths) {
+      try { await deleteFromSupabase(path); } catch {}
+      existingFiles = existingFiles.filter((f: any) => f.storage_path !== path);
+      // ลบจาก News_Files collection
+      const snap = await db.collection('News_Files').where('storage_path', '==', path).get();
+      if (!snap.empty) {
+        const batch = db.batch();
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
+
+    // อัปโหลดไฟล์ใหม่
+    const newFilesData: any[] = [];
+    if (uploadedFiles && uploadedFiles.length > 0) {
+      for (const file of uploadedFiles) {
+        try {
+          const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+          const result = await uploadToSupabase(file.buffer, decodedName, file.mimetype);
+          newFilesData.push({
+            file_name: decodedName, fileURL: result.url,
+            storage_path: result.path, file_size: result.bytes, mime_type: file.mimetype,
+          });
+        } catch (err: any) {
+          console.error(`Upload failed: ${err.message}`);
+        }
+      }
+      // บันทึกลง News_Files collection
+      if (newFilesData.length > 0) {
+        const batch = db.batch();
+        for (const f of newFilesData) {
+          const fileRef = db.collection('News_Files').doc();
+          batch.set(fileRef, {
+            file_id: fileRef.id, news_id: id,
+            file_name: f.file_name, fileURL: f.fileURL,
+            storage_path: f.storage_path, file_size: f.file_size,
+            mime_type: f.mime_type,
+            upload_time: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        await batch.commit();
+      }
+    }
+
+    const allFiles = [
+      ...existingFiles,
+      ...newFilesData.map(f => ({
+        file_name: f.file_name, fileURL: f.fileURL,
+        storage_path: f.storage_path, file_size: f.file_size, mime_type: f.mime_type,
+      }))
+    ];
+
+    await db.collection('News').doc(id).update({
+      title: title || existingData.title,
+      content: content || existingData.content,
+      links: links,
+      files: allFiles,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`✅ News updated: ${id}`);
+    res.json({ success: true, message: 'News updated successfully', newsId: id });
+
+  } catch (error: any) {
+    console.error('❌ PUT news error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 /**

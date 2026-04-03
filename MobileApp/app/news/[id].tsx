@@ -6,7 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, setDoc, onSnapshot } from 'firebase/firestore';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { db } from '@/config/firebase';
@@ -49,12 +49,21 @@ export default function NewsDetailScreen() {
 
   const bookmarkUnsubRef = useRef<(() => void) | null>(null);
 
+  const newsUnsubRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
-    if (id) fetchNews();
-    else setLoading(false);
+    if (id) {
+      fetchNews().then(unsub => {
+        newsUnsubRef.current = unsub || null;
+        if (user && userId) startBookmarkListener();
+      });
+    } else {
+      setLoading(false);
+    }
 
     return () => {
-      // cleanup bookmark listener เมื่อออกจากหน้า
+      newsUnsubRef.current?.();
+      newsUnsubRef.current = null;
       bookmarkUnsubRef.current?.();
       bookmarkUnsubRef.current = null;
     };
@@ -62,25 +71,25 @@ export default function NewsDetailScreen() {
 
   const fetchNews = async () => {
     try {
-      const snap = await getDoc(doc(db, 'News', id));
-      if (!snap.exists()) {
-        Alert.alert('ข้อผิดพลาด', 'ไม่พบข่าวนี้');
-        router.back();
-        return;
-      }
-      const data = snap.data() as NewsData;
-      setNews(data);
-
-      // เริ่ม realtime bookmark listener หลังโหลดข่าวเสร็จ
-      if (user && userId) startBookmarkListener();
-
-      if (data.files && data.files.length > 0) {
+      // ใช้ onSnapshot เพื่อให้อัปเดต realtime เมื่อแก้ไขข่าว
+      const unsub = onSnapshot(doc(db, 'News', id), (snap) => {
+        if (!snap.exists()) {
+          Alert.alert('ข้อผิดพลาด', 'ไม่พบข่าวนี้');
+          router.back();
+          return;
+        }
+        const data = snap.data() as NewsData;
+        setNews(data);
+        setLoading(false);
+        // fetch ไฟล์เสมอไม่ว่าจะมีไฟล์หรือเปล่า — เพื่อ clear ไฟล์เก่าที่ค้างอยู่
         fetchNewsFiles(snap.id);
-      }
+      });
+      // เก็บ unsub ไว้ cleanup
+      return unsub;
     } catch (e: any) {
       Alert.alert('ข้อผิดพลาด', e.message);
-    } finally {
       setLoading(false);
+      return () => {};
     }
   };
 
@@ -267,10 +276,11 @@ export default function NewsDetailScreen() {
     return `${(b / 1048576).toFixed(1)} MB`;
   };
 
-  // ไฟล์ที่จะแสดง: ใช้จาก backend ถ้ามี ถ้าไม่มีใช้จาก news.files
+  // ไฟล์ที่จะแสดง: รวมทั้งจาก backend และ news.files ไม่ให้ตัวใดตัวหนึ่งทับอีกตัว
+  const embeddedFiles: NewsFile[] = news?.files || [];
   const displayFiles: NewsFile[] = newsFiles.length > 0
     ? newsFiles
-    : (news?.files || []);
+    : embeddedFiles;
 
   // ─────────────────── Render ───────────────────
 

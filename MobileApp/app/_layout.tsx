@@ -7,11 +7,20 @@ import { useEffect } from 'react';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform, Linking } from 'react-native';
+import { useFonts, IBMPlexSansThai_300Light, IBMPlexSansThai_400Regular, IBMPlexSansThai_500Medium, IBMPlexSansThai_600SemiBold } from '@expo-google-fonts/ibm-plex-sans-thai';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { NotificationProvider } from '@/context/NotificationContext';
 import { View, ActivityIndicator, Text, Alert } from 'react-native';
+
+// เพิ่ม IBM Plex Sans Thai เป็น default font ผ่าน Text.defaultProps
+// ทำให้ทุกหน้าใช้ font นี้เป็น default โดยไม่ต้องแก้ทีละไฟล์
+(Text as any).defaultProps = (Text as any).defaultProps || {};
+(Text as any).defaultProps.style = { fontFamily: 'IBMPlexSansThai_400Regular' };
 
 // ── ขอ permission ตั้งแต่แอปเปิดครั้งแรก (ก่อน login) ─────────────────────────
 async function requestNotificationPermissionOnStartup() {
@@ -41,6 +50,18 @@ function RootLayoutNav() {
   const { user, userProfile, loading } = useAuth();
   const segments = useSegments();
 
+  const [fontsLoaded, fontError] = useFonts({
+    IBMPlexSansThai_300Light,
+    IBMPlexSansThai_400Regular,
+    IBMPlexSansThai_500Medium,
+    IBMPlexSansThai_600SemiBold,
+  });
+
+  // font โหลดเสร็จ หรือ error → ซ่อน splash screen
+  useEffect(() => {
+    if (fontsLoaded || fontError) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
+
   // ขอ permission ทันทีที่แอปโหลด
   useEffect(() => {
     requestNotificationPermissionOnStartup();
@@ -62,7 +83,7 @@ function RootLayoutNav() {
     // ถ้ามี user แต่ยังไม่มี profile (กำลัง register) → ไม่ redirect
   }, [user, userProfile, loading, segments]);
 
-  if (loading) {
+  if (loading || (!fontsLoaded && !fontError)) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color="#1B8B6A" />

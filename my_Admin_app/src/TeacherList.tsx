@@ -2,7 +2,7 @@
 import type { JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 
-const API = 'http://localhost:8080';
+const API = 'https://projectmobileappnotification-production.up.railway.app';
 
 interface Teacher {
   teacher_id: string;

@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import type { LoggedInUser } from "./Login";
 import "./style.css";
 
-type SubmitResult = { ok: true; id?: string } | { ok: false; message: string };
+// type SubmitResult = { ok: true; id?: string } | { ok: false; message: string };
 
 const BACKEND_URL = "https://projectmobileappnotification-production.up.railway.app";
 
@@ -98,12 +98,12 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
 
   // ── ลิงก์ ──────────────────────────────────────────────────────
   const [links, setLinks] = useState<LinkItem[]>([]);
-  const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
 
   // ไฟล์ preview ทั่วไป
   const [fileItems, setFileItems] = useState<FilePreviewItem[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]); // เก็บ File objects จริงๆ
 
   // Excel/CSV preview
   const [examColumns, setExamColumns] = useState<string[]>([]);
@@ -120,6 +120,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     if (currentUser.role === "teacher") {
@@ -154,12 +155,10 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
   function handleAddLink() {
     setLinkError("");
     const url = linkUrl.trim();
-    const label = linkLabel.trim();
     if (!url) {
       setLinkError("กรุณากรอก URL");
       return;
     }
-    // เพิ่ม https:// ให้อัตโนมัติถ้าไม่มี
     const fullUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
     if (!isValidUrl(fullUrl)) {
       setLinkError("URL ไม่ถูกต้อง");
@@ -167,9 +166,8 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
     }
     setLinks((prev) => [
       ...prev,
-      { id: `${Date.now()}`, label: label || fullUrl, url: fullUrl },
+      { id: `${Date.now()}`, label: fullUrl, url: fullUrl },
     ]);
-    setLinkLabel("");
     setLinkUrl("");
   }
 
@@ -177,7 +175,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
     setLinks((prev) => prev.filter((l) => l.id !== id));
   }
 
-  // ── รับไฟล์ทุกประเภท ──────────────────────────────────────────
+  // ── รับไฟล์ทุกประเภท (สะสมได้หลายครั้ง) ─────────────────────
   async function onFilesChange(e: any) {
     const files = Array.from(
       (e.target as HTMLInputElement).files || [],
@@ -185,11 +183,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
     if (!files.length) return;
 
     setError(null);
-    setFileItems([]);
-    setExamColumns([]);
-    setGroupedData([]);
-    setExamRowCount(0);
-    setPdfPreviews([]);
+    // ไม่ reset fileItems — สะสมไฟล์จากหลาย batch
 
     const items: FilePreviewItem[] = [];
     const newPdfs: { name: string; url: string }[] = [];
@@ -206,7 +200,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
       }
 
       const item: FilePreviewItem = {
-        id: `${i}_${f.name}`,
+        id: `${Date.now()}_${i}_${f.name}`,
         name: f.name,
         sizeMB: f.size / (1024 * 1024),
       };
@@ -259,9 +253,12 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
       items.push(item);
     }
 
-    setPdfPreviews(newPdfs);
-    setFileItems(items);
+    // สะสม (append) ไม่ replace
+    setPendingFiles(prev => [...prev, ...files]);
+    setPdfPreviews(prev => [...prev, ...newPdfs]);
+    setFileItems(prev => [...prev, ...items]);
     setParsing(false);
+    // ไม่ reset input — เพราะ File objects ถูกเก็บใน pendingFiles แล้ว
   }
 
   // ── Submit ────────────────────────────────────────────────────
@@ -272,7 +269,6 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
 
     const title = titleRef.current?.value.trim() ?? "";
     const content = contentRef.current?.value.trim() ?? "";
-    const files = filesRef.current?.files;
 
     if (!title) return setError("กรุณากรอกหัวเรื่อง");
     if (!content) return setError("กรุณากรอกเนื้อหา");
@@ -292,7 +288,8 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
     if (sendMode === "all") fd.append("group_id", "all");
     else if (sendMode === "group") fd.append("group_id", selectedGroup);
     else fd.append("student_id_target", selectedStudent);
-    if (files) Array.from(files).forEach((f) => fd.append("files", f));
+    // ใช้ pendingFiles state แทน filesRef เพราะ input ถูก reset
+    pendingFiles.forEach((f) => fd.append("files", f));
 
     // ส่ง links เป็น JSON string
     if (links.length > 0) {
@@ -327,6 +324,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
       (contentRef.current as HTMLTextAreaElement).value = "";
       if (filesRef.current) filesRef.current.value = "";
       setFileItems([]);
+      setPendingFiles([]);
       setExamColumns([]);
       setGroupedData([]);
       setExamRowCount(0);
@@ -336,7 +334,6 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
       setSelectedStudent("");
       setStudentSearch("");
       setLinks([]);
-      setLinkLabel("");
       setLinkUrl("");
     } catch (err: any) {
       setError(err.message || "ไม่สามารถบันทึกได้");
@@ -413,18 +410,8 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
                 display: "flex",
                 gap: "8px",
                 marginBottom: "8px",
-                flexWrap: "wrap",
               }}
             >
-              <input
-                type="text"
-                placeholder="ชื่อลิงก์ (ไม่บังคับ) เช่น ดูรายละเอียดเพิ่มเติม"
-                value={linkLabel}
-                onInput={(e) =>
-                  setLinkLabel((e.target as HTMLInputElement).value)
-                }
-                style={{ ...I, flex: "1 1 200px", minWidth: "0" }}
-              />
               <input
                 type="text"
                 placeholder="URL เช่น https://example.com"
@@ -435,7 +422,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
                 onKeyDown={(e) =>
                   e.key === "Enter" && (e.preventDefault(), handleAddLink())
                 }
-                style={{ ...I, flex: "2 1 260px", minWidth: "0" }}
+                style={{ ...I, flex: 1, minWidth: "0" }}
               />
               <button
                 type="button"
@@ -450,6 +437,7 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
                   cursor: "pointer",
                   whiteSpace: "nowrap",
                   fontSize: "14px",
+                  fontFamily: "inherit",
                 }}
               >
                 + เพิ่ม
@@ -496,27 +484,15 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
                   >
                     <span style={{ fontSize: "16px" }}>🔗</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: "600",
-                          fontSize: "13px",
-                          color: "#065f46",
-                        }}
-                      >
-                        {l.label}
+                      <div style={{ fontWeight: "700", fontSize: "13px", color: "#065f46" }}>
+                        {l.label && l.label !== l.url ? l.label : l.url}
                       </div>
-                      <a
-                        href={l.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: "12px",
-                          color: "#158e6d",
-                          wordBreak: "break-all",
-                        }}
-                      >
-                        {l.url}
-                      </a>
+                      {l.label && l.label !== l.url && (
+                        <a href={l.url} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: "12px", color: "#158e6d", wordBreak: "break-all" }}>
+                          {l.url}
+                        </a>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -823,35 +799,29 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
                     }}
                   >
                     {p.imageUrl ? (
-                      <img
-                        src={p.imageUrl}
-                        alt={p.name}
-                        style={{
-                          width: "44px",
-                          height: "44px",
-                          objectFit: "cover",
-                          borderRadius: "6px",
-                        }}
-                      />
+                      <img src={p.imageUrl} alt={p.name} style={{ width: "44px", height: "44px", objectFit: "cover", borderRadius: "6px" }} />
                     ) : (
-                      <span style={{ fontSize: "24px" }}>
-                        {fileIcon(p.name)}
-                      </span>
+                      <span style={{ fontSize: "24px" }}>{fileIcon(p.name)}</span>
                     )}
                     <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          fontWeight: "500",
-                          fontSize: "14px",
-                          color: "#1f2937",
-                        }}
-                      >
-                        {p.name}
-                      </div>
-                      <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                        {p.sizeMB.toFixed(2)} MB
-                      </div>
+                      <div style={{ fontWeight: "500", fontSize: "14px", color: "#1f2937" }}>{p.name}</div>
+                      <div style={{ fontSize: "12px", color: "#6b7280" }}>{p.sizeMB.toFixed(2)} MB</div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFileItems(prev => prev.filter(f => f.id !== p.id));
+                        setPdfPreviews(prev => prev.filter(pdf => pdf.name !== p.name));
+                        // ลบไฟล์ที่มีชื่อตรงกันไฟล์เดียว (ลบแค่ตัวแรกที่เจอ)
+                        setPendingFiles(prev => {
+                          const idx = prev.findIndex(f => f.name === p.name);
+                          if (idx === -1) return prev;
+                          return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+                        });
+                      }}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: "#ef4444", padding: "2px 6px", flexShrink: 0 }}
+                      title="ลบไฟล์นี้"
+                    >✕</button>
                   </div>
                 ))}
               </div>
@@ -1041,8 +1011,16 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
           )}
 
           <button
-            type="submit"
+            type="button"
             disabled={submitting}
+            onClick={() => {
+              const title = titleRef.current?.value.trim() ?? "";
+              const content = contentRef.current?.value.trim() ?? "";
+              if (!title) return setError("กรุณากรอกหัวเรื่อง");
+              if (!content) return setError("กรุณากรอกเนื้อหา");
+              setError(null);
+              setShowPreview(true);
+            }}
             style={{
               width: "100%",
               background: submitting ? "#9ca3af" : "#158e6d",
@@ -1053,11 +1031,98 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
               fontWeight: "600",
               cursor: submitting ? "not-allowed" : "pointer",
               fontSize: "16px",
+              fontFamily: "inherit",
             }}
           >
-            {submitting ? "⏳ กำลังบันทึก..." : "ยืนยันเพิ่มข่าวสาร"}
+            ตรวจสอบก่อนเผยแพร่
           </button>
         </form>
+
+        {/* Preview Modal */}
+        {showPreview && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}
+            onClick={e => { if (e.target === e.currentTarget) setShowPreview(false); }}>
+            <div style={{ background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "640px", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }}>
+
+              {/* Header */}
+              <div style={{ padding: "18px 24px", borderBottom: "1px solid #f0f0f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: "16px", fontWeight: "700", color: "#1a1d23" }}>ตรวจสอบก่อนเผยแพร่</div>
+                  <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "2px" }}>ตรวจว่าข้อมูลถูกต้องแล้วกด “ยืนยันส่ง” เพื่อเผยแพร่</div>
+                </div>
+                <button onClick={() => setShowPreview(false)} style={{ width: "30px", height: "30px", borderRadius: "50%", border: "none", background: "#f3f4f6", cursor: "pointer", fontSize: "16px", color: "#6b7280" }}>✕</button>
+              </div>
+
+              {/* Body */}
+              <div style={{ overflowY: "auto", flex: 1, padding: "20px 24px" }}>
+                {/* Badges */}
+                <div style={{ display: "flex", gap: "6px", marginBottom: "14px", flexWrap: "wrap" }}>
+                  {sendMode === "all" && <span style={{ background: "#f0fdf4", color: "#16a34a", padding: "3px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "700" }}>ทุกคน</span>}
+                  {sendMode === "group" && <span style={{ background: "#ede9fe", color: "#6d28d9", padding: "3px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "700" }}>กลุ่ม: {groups.find(g => g.group_id === selectedGroup)?.name_group}</span>}
+                  {sendMode === "personal" && <span style={{ background: "#fef3c7", color: "#92400e", padding: "3px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "700" }}>รายบุคคล</span>}
+                  {fileItems.length > 0 && <span style={{ background: "#e0f2fe", color: "#0369a1", padding: "3px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "700" }}>{fileItems.length} ไฟล์</span>}
+                  {links.length > 0 && <span style={{ background: "#fef9c3", color: "#854d0e", padding: "3px 10px", borderRadius: "12px", fontSize: "12px", fontWeight: "700" }}>{links.length} ลิงก์</span>}
+                </div>
+
+                {/* Title */}
+                <div style={{ fontSize: "20px", fontWeight: "700", color: "#1a1d23", marginBottom: "10px", lineHeight: "1.4" }}>
+                  {titleRef.current?.value || "-"}
+                </div>
+
+                {/* Content */}
+                <div style={{ fontSize: "14px", color: "#374151", lineHeight: "1.7", whiteSpace: "pre-wrap", marginBottom: "16px", padding: "14px 16px", background: "#f9fafb", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
+                  {contentRef.current?.value || "-"}
+                </div>
+
+                {/* Files */}
+                {fileItems.length > 0 && (
+                  <div style={{ marginBottom: "14px" }}>
+                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#374151", marginBottom: "8px" }}>ไฟล์แนบ ({fileItems.length})</div>
+                    {fileItems.map(f => (
+                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 12px", background: "#f9fafb", borderRadius: "8px", border: "1px solid #e5e7eb", marginBottom: "6px" }}>
+                        <span style={{ fontSize: "18px" }}>{f.imageUrl ? '🖼️' : '📎'}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "13px", fontWeight: "500" }}>{f.name}</div>
+                          <div style={{ fontSize: "11px", color: "#9ca3af" }}>{f.sizeMB.toFixed(2)} MB</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Links */}
+                {links.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#374151", marginBottom: "8px" }}>ลิงก์แนบ ({links.length})</div>
+                    {links.map((l, i) => (
+                      <div key={i} style={{ padding: "8px 12px", background: "#fffbeb", borderRadius: "8px", border: "1px solid #fde68a", marginBottom: "6px" }}>
+                        <div style={{ fontSize: "13px", fontWeight: "600", color: "#92400e" }}>{l.label}</div>
+                        <div style={{ fontSize: "11px", color: "#b45309" }}>{l.url}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: "16px 24px", borderTop: "1px solid #f0f0f0", display: "flex", gap: "10px" }}>
+                <button onClick={() => setShowPreview(false)} style={{ flex: 1, padding: "12px", background: "#f3f4f6", color: "#555", border: "none", borderRadius: "9px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>แก้ไข</button>
+                <button
+                  disabled={submitting}
+                  onClick={async () => {
+                    setShowPreview(false);
+                    // trigger form submit
+                    const form = document.querySelector('form') as HTMLFormElement;
+                    if (form) form.requestSubmit();
+                  }}
+                  style={{ flex: 2, padding: "12px", background: submitting ? "#9ca3af" : "#158e6d", color: "#fff", border: "none", borderRadius: "9px", fontWeight: "700", cursor: submitting ? "not-allowed" : "pointer", fontFamily: "inherit", fontSize: "15px" }}
+                >
+                  {submitting ? "กำลังส่ง..." : "ยืนยันส่งข่าวสาร"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

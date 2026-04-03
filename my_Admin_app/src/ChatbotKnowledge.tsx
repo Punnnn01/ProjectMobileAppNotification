@@ -589,11 +589,12 @@ export default function ChatbotKnowledge(): JSX.Element {
                 display: "flex",
                 alignItems: "flex-start",
                 gap: "16px",
-                opacity: entry.enabled ? 1 : 0.65,
                 boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
               }}
             >
-              {/* Order badge */}
+              {/* Order badge + Content — หรี่เมื่อปิดใช้งาน */}
+              <div style={{ display: "flex", flex: 1, minWidth: 0, gap: "16px", alignItems: "flex-start", opacity: entry.enabled ? 1 : 0.45 }}>
+
               <div
                 style={{
                   width: "32px",
@@ -659,7 +660,9 @@ export default function ChatbotKnowledge(): JSX.Element {
                 </p>
               </div>
 
-              {/* Actions */}
+              </div>{/* end opacity wrapper */}
+
+              {/* Actions — สว่างเสมอ ไม่ใส่ opacity */}
               <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
                 <button
                   onClick={() => handleToggle(entry)}
