@@ -10,13 +10,6 @@ import { doc, updateDoc, collection, query, where, getDocs, onSnapshot } from 'f
 import { db } from '@/config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 
-const F = {
-  light:  'IBMPlexSansThai_300Light',
-  regular:'IBMPlexSansThai_400Regular',
-  medium: 'IBMPlexSansThai_500Medium',
-  semi:   'IBMPlexSansThai_600SemiBold',
-} as const;
-
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, userId, userProfile, refreshUserProfile } = useAuth();
@@ -200,7 +193,6 @@ const styles = StyleSheet.create({
   displayName: {
     color: '#fff', fontSize: 22, fontWeight: '700',
     marginBottom: 8, textAlign: 'center',
-    fontFamily: F.semi,
   },
   roleBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -208,12 +200,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
     marginBottom: 16,
   },
-  roleBadgeText: { color: '#fff', fontSize: 13, fontFamily: F.medium },
+  roleBadgeText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#fff', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20,
   },
-  editBtnText: { color: '#1B8B6A', fontSize: 13, fontFamily: F.semi },
+  editBtnText: { color: '#1B8B6A', fontSize: 13, fontWeight: '700' },
 
   card: {
     backgroundColor: '#fff',
@@ -223,33 +215,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.07, shadowRadius: 8, elevation: 4,
     marginBottom: 16,
   },
-  cardTitle: { fontSize: 15, color: '#111', marginBottom: 16, fontFamily: F.semi },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#111', marginBottom: 16 },
 
   infoRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
-  infoLabel: { fontSize: 14, color: '#777', fontFamily: F.regular },
-  infoValue: { fontSize: 14, color: '#111', maxWidth: '60%', textAlign: 'right', fontFamily: F.medium },
+  infoLabel: { fontSize: 14, color: '#777', fontWeight: '500' },
+  infoValue: { fontSize: 14, color: '#111', fontWeight: '600', maxWidth: '60%', textAlign: 'right' },
 
   fieldGroup: { marginBottom: 14 },
-  fieldLabel: { fontSize: 13, color: '#777', marginBottom: 6, fontFamily: F.regular },
+  fieldLabel: { fontSize: 13, color: '#777', fontWeight: '500', marginBottom: 6 },
   fieldInput: {
     borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 11,
     fontSize: 15, color: '#111', backgroundColor: '#F9FAFB',
-    fontFamily: F.regular,
   },
 
   btnArea: { flexDirection: 'row', gap: 12, marginHorizontal: 16, marginBottom: 8 },
   btn: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   cancelBtn: { backgroundColor: '#F3F4F6' },
-  cancelBtnText: { color: '#555', fontSize: 15, fontFamily: F.medium },
+  cancelBtnText: { color: '#555', fontSize: 15, fontWeight: '600' },
   saveBtn: { backgroundColor: '#1B8B6A', borderWidth: 2, borderColor: '#fff' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontFamily: F.semi },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
   successBox: { backgroundColor: '#fff', borderRadius: 16, padding: 32, alignItems: 'center', gap: 12 },
   successIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#DCFCE7', justifyContent: 'center', alignItems: 'center' },
-  successText: { fontSize: 17, color: '#111', fontFamily: F.semi },
+  successText: { fontSize: 17, fontWeight: '700', color: '#111' },
 });

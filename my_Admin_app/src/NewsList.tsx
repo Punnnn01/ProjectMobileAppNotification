@@ -81,12 +81,12 @@ function EditModal({ item, onClose, onSaved }: { item: NewsItem; onClose: () => 
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:'20px' }}
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:'20px' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background:'var(--color-background-primary)', borderRadius:'16px', width:'100%', maxWidth:'600px', maxHeight:'90vh', display:'flex', flexDirection:'column', border:'0.5px solid var(--color-border-tertiary)' }}>
-        <div style={{ padding:'20px 24px 16px', borderBottom:'0.5px solid var(--color-border-tertiary)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ fontSize:'16px', fontWeight:'500', color:'var(--color-text-primary)' }}>แก้ไขข่าวสาร</div>
-          <button onClick={onClose} style={{ width:'28px', height:'28px', borderRadius:'50%', border:'none', background:'var(--color-background-secondary)', cursor:'pointer', fontSize:'14px', color:'var(--color-text-secondary)' }}>✕</button>
+      <div style={{ background:'#ffffff', borderRadius:'16px', width:'100%', maxWidth:'600px', maxHeight:'90vh', display:'flex', flexDirection:'column', border:'0.5px solid #e5e7eb', boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding:'20px 24px 16px', borderBottom:'0.5px solid #f0f0f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ fontSize:'16px', fontWeight:'500', color:'#1a1d23' }}>แก้ไขข่าวสาร</div>
+          <button onClick={onClose} style={{ width:'28px', height:'28px', borderRadius:'50%', border:'none', background:'#f3f4f6', cursor:'pointer', fontSize:'14px', color:'#6b7280' }}>✕</button>
         </div>
         <div style={{ overflowY:'auto', flex:1, padding:'20px 24px', display:'flex', flexDirection:'column', gap:'14px' }}>
           <div>
@@ -143,12 +143,12 @@ function EditModal({ item, onClose, onSaved }: { item: NewsItem; onClose: () => 
           </div>
           {error && <div style={{ padding:'10px 14px', background:'#fee2e2', color:'#991b1b', borderRadius:'8px', fontSize:'13px' }}>{error}</div>}
         </div>
-        <div style={{ padding:'16px 24px', borderTop:'0.5px solid var(--color-border-tertiary)', display:'flex', gap:'10px' }}>
-          <button onClick={onClose} style={{ flex:1, padding:'11px', background:'var(--color-background-secondary)', color:'var(--color-text-secondary)', border:'0.5px solid var(--color-border-secondary)', borderRadius:'9px', fontWeight:'500', cursor:'pointer', fontFamily:'inherit' }}>ยกเลิก</button>
-          <button onClick={handleSave} disabled={saving}
-            style={{ flex:2, padding:'11px', background:saving ? '#9ca3af' : '#158e6d', color:'#fff', border:'none', borderRadius:'9px', fontWeight:'500', cursor:saving ? 'not-allowed' : 'pointer', fontFamily:'inherit' }}>
-            {saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
-          </button>
+        <div style={{ padding:'16px 24px', borderTop:'0.5px solid #f0f0f0', display:'flex', gap:'10px' }}>
+        <button onClick={onClose} style={{ flex:1, padding:'11px', background:'#f3f4f6', color:'#555', border:'0.5px solid #e5e7eb', borderRadius:'9px', fontWeight:'500', cursor:'pointer', fontFamily:'inherit' }}>ยกเลิก</button>
+        <button onClick={handleSave} disabled={saving}
+        style={{ flex:2, padding:'11px', background:saving ? '#9ca3af' : '#158e6d', color:'#fff', border:'none', borderRadius:'9px', fontWeight:'500', cursor:saving ? 'not-allowed' : 'pointer', fontFamily:'inherit' }}>
+        {saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+        </button>
         </div>
       </div>
     </div>
@@ -384,5 +384,5 @@ export default function NewsList({ currentUser }: Props): JSX.Element {
   );
 }
 
-const lbl: any = { display:'block', fontWeight:'500', marginBottom:'6px', fontSize:'13px', color:'var(--color-text-primary)' };
-const inp: any = { width:'100%', padding:'9px 13px', border:'0.5px solid var(--color-border-secondary)', borderRadius:'8px', fontSize:'13px', background:'var(--color-background-primary)', boxSizing:'border-box', fontFamily:'inherit', color:'var(--color-text-primary)', outline:'none' };
+const lbl: any = { display:'block', fontWeight:'500', marginBottom:'6px', fontSize:'13px', color:'#374151' };
+const inp: any = { width:'100%', padding:'9px 13px', border:'0.5px solid #d1d5db', borderRadius:'8px', fontSize:'13px', background:'#ffffff', boxSizing:'border-box', fontFamily:'inherit', color:'#1a1d23', outline:'none' };

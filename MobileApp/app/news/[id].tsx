@@ -276,11 +276,16 @@ export default function NewsDetailScreen() {
     return `${(b / 1048576).toFixed(1)} MB`;
   };
 
-  // ไฟล์ที่จะแสดง: รวมทั้งจาก backend และ news.files ไม่ให้ตัวใดตัวหนึ่งทับอีกตัว
+  // ไฟล์ที่จะแสดง: ใช้จาก news.files ที่ embedded ใน Firestore เป็นหลัก
+  // ถ้า backend โหลดเสร็จและมีไฟล์เพิ่มเติม ค่อย merge เข้ามา
   const embeddedFiles: NewsFile[] = news?.files || [];
-  const displayFiles: NewsFile[] = newsFiles.length > 0
-    ? newsFiles
-    : embeddedFiles;
+  const displayFiles: NewsFile[] = (() => {
+    if (newsFiles.length === 0) return embeddedFiles;
+    // merge: เอา newsFiles เป็นหลัก แต่เพิ่ม embedded ที่ไม่มีใน newsFiles
+    const backendNames = new Set(newsFiles.map(f => f.file_name));
+    const extra = embeddedFiles.filter(f => !backendNames.has(f.file_name));
+    return [...newsFiles, ...extra];
+  })();
 
   // ─────────────────── Render ───────────────────
 
@@ -307,8 +312,8 @@ export default function NewsDetailScreen() {
     </View>
   );
 
-  const hasFiles   = displayFiles.length > 0;
-  const hasLinks   = news.links && news.links.length > 0;
+  const hasFiles   = displayFiles.length > 0 || embeddedFiles.length > 0;
+  const hasLinks   = (news.links?.length ?? 0) > 0;
   const isGroupNews = news.group_id && news.group_id !== 'all';
 
   return (
