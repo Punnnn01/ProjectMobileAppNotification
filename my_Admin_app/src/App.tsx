@@ -147,16 +147,16 @@ export default function App() {
               {isAdmin ? (
                 <TeacherList />
               ) : (
-                <NewsList currentUser={currentUser} />
+                <NewsList currentUser={currentUser} onNavigate={navigate} />
               )}
             </Route>
 
             <Route path="/add-news">
-              <AddNews currentUser={currentUser} />
+              <AddNews currentUser={currentUser} onNavigate={navigate} />
             </Route>
 
             <Route path="/news-list">
-              <NewsList currentUser={currentUser} />
+              <NewsList currentUser={currentUser} onNavigate={navigate} />
             </Route>
 
             {isTeacher && (

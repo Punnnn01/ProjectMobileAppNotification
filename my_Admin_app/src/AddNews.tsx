@@ -39,6 +39,7 @@ interface LinkItem {
 }
 interface Props {
   currentUser: LoggedInUser;
+  onNavigate?: (path: string) => void;
 }
 
 // ── Excel helpers ────────────────────────────────────────────────
@@ -81,7 +82,7 @@ function isValidUrl(url: string): boolean {
   }
 }
 
-export default function AddNews({ currentUser }: Props): JSX.Element {
+export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element {
   const titleRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
   const filesRef = useRef<HTMLInputElement | null>(null);
@@ -319,6 +320,10 @@ export default function AddNews({ currentUser }: Props): JSX.Element {
         label = s ? studentName(s) : selectedStudent;
       }
       setSuccess(`บันทึกสำเร็จ! ✅ ส่งถึง: ${label}`);
+      // navigate ไปหน้าข่าวสารหลัง submit สำเร็จ
+      if (onNavigate) {
+        setTimeout(() => onNavigate(currentUser.role === 'teacher' ? '/' : '/news-list'), 1200);
+      }
       // reset
       (titleRef.current as HTMLInputElement).value = "";
       (contentRef.current as HTMLTextAreaElement).value = "";
