@@ -34,7 +34,7 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     const filesData: any[] = [];
 
     if (uploadedFiles && uploadedFiles.length > 0) {
-      console.log(`📤 Uploading ${uploadedFiles.length} files to Supabase Storage...`);
+      console.log('📤 Uploading files to Supabase Storage...');
       for (const file of uploadedFiles) {
         try {
           const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -46,13 +46,11 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
             file_size: result.bytes,
             mime_type: file.mimetype,
           });
-          console.log(`   ✅ [${filesData.length}/${uploadedFiles.length}] Uploaded: ${decodedName}`);
+          console.log(`   ✅ Uploaded: ${decodedName} → ${result.url}`);
         } catch (err: any) {
-          console.error(`   ❌ [FAILED] ${file.originalname} — ${err.message}`);
-          // ไม่ throw — อัปโหลดไฟล์อื่นต่อ
+          console.error(`   ❌ Failed: ${file.originalname} — ${err.message}`);
         }
       }
-      console.log(`📎 Upload summary: ${filesData.length}/${uploadedFiles.length} files succeeded`);
     }
 
     // 2. สร้าง News document พร้อม files array embedded
@@ -239,11 +237,8 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     res.status(201).json({
       success: true,
       message: 'News created and notifications sent',
-      news: { id: newsRef.id, title: newsData.title, filesUploaded: filesData.length, filesRequested: uploadedFiles?.length || 0 },
-      notification: { sent: tokens.length > 0, successCount, errorCount, totalTokens: tokens.length },
-      warning: uploadedFiles?.length && filesData.length < uploadedFiles.length
-        ? `อัปโหลดไฟล์สำเร็จ ${filesData.length}/${uploadedFiles.length} ไฟล์`
-        : undefined,
+      news: { id: newsRef.id, title: newsData.title, filesUploaded: filesData.length },
+      notification: { sent: tokens.length > 0, successCount, errorCount, totalTokens: tokens.length }
     });
 
   } catch (error: any) {

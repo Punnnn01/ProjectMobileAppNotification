@@ -310,10 +310,6 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
       if (!res.ok) {
         throw new Error(data?.message || `HTTP ${res.status}`);
       }
-      // แจ้งเตือนถ้าบางไฟล์ upload ไม่สำเร็จ
-      if (data?.warning) {
-        console.warn('⚠️', data.warning);
-      }
       let label = "ทุกคน";
       if (sendMode === "group")
         label =

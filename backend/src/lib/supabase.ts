@@ -25,11 +25,9 @@ export async function uploadToSupabase(
   path: string;
   bytes: number;
 }> {
-  // สร้างชื่อไฟล์ที่ปลอดภัย
-  const safeFilename = originalName
-    .replace(/[^a-zA-Z0-9ก-๛._-]/g, '_')
-    .replace(/_{2,}/g, '_');
-  const filePath = `${Date.now()}_${safeFilename}`;
+  // ใช้แค่ timestamp + นามสกุลไฟล์ ไม่เอาชื่อภาษาไทยไปใน path
+  const ext = originalName.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'bin';
+  const filePath = `${Date.now()}.${ext}`;
 
   console.log(`📤 Uploading to Supabase: ${filePath}`);
 
