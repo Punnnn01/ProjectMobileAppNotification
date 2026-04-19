@@ -34,24 +34,25 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     const filesData: any[] = [];
 
     if (uploadedFiles && uploadedFiles.length > 0) {
-      console.log('📤 Uploading files to Supabase Storage...');
+      console.log(`📤 Uploading ${uploadedFiles.length} files to Supabase Storage...`);
       for (const file of uploadedFiles) {
         try {
-          // แปลง originalname จาก Latin-1 → UTF-8 เพื่อรองรับชื่อไฟล์ภาษาไทย
           const decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
           const result = await uploadToSupabase(file.buffer, decodedName, file.mimetype);
           filesData.push({
             file_name: decodedName,
-            fileURL: result.url,   // public URL เปิดได้โดยตรง
-            storage_path: result.path, // เก็บ path ไว้ลบทีหลัง
+            fileURL: result.url,
+            storage_path: result.path,
             file_size: result.bytes,
             mime_type: file.mimetype,
           });
-          console.log(`   ✅ Uploaded: ${decodedName} → ${result.url}`);
+          console.log(`   ✅ [${filesData.length}/${uploadedFiles.length}] Uploaded: ${decodedName}`);
         } catch (err: any) {
-          console.error(`   ❌ Failed: ${file.originalname} — ${err.message}`);
+          console.error(`   ❌ [FAILED] ${file.originalname} — ${err.message}`);
+          // ไม่ throw — อัปโหลดไฟล์อื่นต่อ
         }
       }
+      console.log(`📎 Upload summary: ${filesData.length}/${uploadedFiles.length} files succeeded`);
     }
 
     // 2. สร้าง News document พร้อม files array embedded
@@ -238,8 +239,11 @@ router.post('/', upload.array('files', 10), async (req: Request, res: Response) 
     res.status(201).json({
       success: true,
       message: 'News created and notifications sent',
-      news: { id: newsRef.id, title: newsData.title, filesUploaded: filesData.length },
-      notification: { sent: tokens.length > 0, successCount, errorCount, totalTokens: tokens.length }
+      news: { id: newsRef.id, title: newsData.title, filesUploaded: filesData.length, filesRequested: uploadedFiles?.length || 0 },
+      notification: { sent: tokens.length > 0, successCount, errorCount, totalTokens: tokens.length },
+      warning: uploadedFiles?.length && filesData.length < uploadedFiles.length
+        ? `อัปโหลดไฟล์สำเร็จ ${filesData.length}/${uploadedFiles.length} ไฟล์`
+        : undefined,
     });
 
   } catch (error: any) {

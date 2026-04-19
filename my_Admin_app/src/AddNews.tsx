@@ -306,9 +306,13 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
         method: "POST",
         body: fd,
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.message || `HTTP ${res.status}`);
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+      // แจ้งเตือนถ้าบางไฟล์ upload ไม่สำเร็จ
+      if (data?.warning) {
+        console.warn('⚠️', data.warning);
       }
       let label = "ทุกคน";
       if (sendMode === "group")
