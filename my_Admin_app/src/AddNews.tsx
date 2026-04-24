@@ -124,18 +124,15 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    if (currentUser.role === "teacher") {
-      fetch(
-        `${BACKEND_URL}/api/group-notifications/creator/${currentUser.docId}`,
-      )
-        .then((r) => (r.ok ? r.json() : { data: [] }))
-        .then((d) => setGroups(d.data || []))
-        .catch(() => setGroups([]));
-      fetch(`${BACKEND_URL}/api/students/`)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((d) => setStudents(Array.isArray(d) ? d : []))
-        .catch(() => setStudents([]));
-    }
+    // ทั้ง admin และ teacher ดึงเฉพาะกลุ่มของตัวเอง
+    fetch(`${BACKEND_URL}/api/group-notifications/creator/${currentUser.docId}`)
+      .then((r) => (r.ok ? r.json() : { data: [] }))
+      .then((d) => setGroups(d.data || []))
+      .catch(() => setGroups([]));
+    fetch(`${BACKEND_URL}/api/students/`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setStudents(Array.isArray(d) ? d : []))
+      .catch(() => setStudents([]));
   }, [currentUser]);
 
   function studentName(s: Student) {
@@ -273,12 +270,10 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
 
     if (!title) return setError("กรุณากรอกหัวเรื่อง");
     if (!content) return setError("กรุณากรอกเนื้อหา");
-    if (currentUser.role === "teacher") {
-      if (sendMode === "group" && !selectedGroup)
-        return setError("กรุณาเลือกกลุ่มที่ต้องการส่ง");
-      if (sendMode === "personal" && !selectedStudent)
-        return setError("กรุณาเลือกนิสิตที่ต้องการส่ง");
-    }
+    if (sendMode === "group" && !selectedGroup)
+      return setError("กรุณาเลือกกลุ่มที่ต้องการส่ง");
+    if (sendMode === "personal" && !selectedStudent)
+      return setError("กรุณาเลือกนิสิตที่ต้องการส่ง");
 
     const fd = new FormData();
     fd.append("title", title);
@@ -522,9 +517,8 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
             )}
           </div>
 
-          {/* ── ส่งถึง (teacher เท่านั้น) ── */}
-          {currentUser.role === "teacher" && (
-            <div style={{ marginBottom: "20px" }}>
+          {/* ── ส่งถึง ── */}
+          <div style={{ marginBottom: "20px" }}>
               <label style={L}>ส่งถึง</label>
               <div
                 style={{ display: "flex", gap: "10px", marginBottom: "14px" }}
@@ -742,7 +736,6 @@ export default function AddNews({ currentUser, onNavigate }: Props): JSX.Element
                 </div>
               )}
             </div>
-          )}
 
           {/* แนบไฟล์ */}
           <div style={{ marginBottom: "24px" }}>

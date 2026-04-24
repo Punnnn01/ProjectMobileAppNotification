@@ -51,9 +51,7 @@ function Sidebar({
         <NavItem icon="▪" label="ข่าวสารทั้งหมด" path="/" currentPath={currentPath} onClick={() => navigate("/")} />
       )}
       <NavItem icon="▪" label="เพิ่มข่าวสาร" path="/add-news" currentPath={currentPath} onClick={() => navigate("/add-news")} />
-      {isTeacher && (
-        <NavItem icon="▪" label="Group Notification" path="/group-notification" currentPath={currentPath} onClick={() => navigate("/group-notification")} />
-      )}
+      <NavItem icon="▪" label="Group Notification" path="/group-notification" currentPath={currentPath} onClick={() => navigate("/group-notification")} />
       {isAdmin && (
         <>
           <NavItem icon="▪" label="ดูข่าวสารทั้งหมด" path="/news-list" currentPath={currentPath} onClick={() => navigate("/news-list")} />
@@ -159,7 +157,7 @@ export default function App() {
               <NewsList currentUser={currentUser} onNavigate={navigate} />
             </Route>
 
-            {isTeacher && (
+            {(isTeacher || isAdmin) && (
               <Route path="/group-notification">
                 <GroupNotification currentUser={currentUser} />
               </Route>
